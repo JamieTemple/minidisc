@@ -1,6 +1,6 @@
 # MiniDisc
 
-Desktop management software for RISC OS
+Desktop Management Software for RISC OS
 
 # Features
 
@@ -13,9 +13,9 @@ Desktop management software for RISC OS
 * Desktop filters to enhance your working environment
 * A dynamic 'pop-up' toolbar
 
-# Downloads & user documentation
+# Downloads & User Documentation
 
-.
+Downloads on the right, docs in the wiki.
 
 # Contributing
 
