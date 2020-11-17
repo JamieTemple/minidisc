@@ -15,7 +15,7 @@ Desktop Management Software for RISC OS
 
 # Downloads & User Documentation
 
-Downloads on the right, docs in the wiki.
+[Downloads](https://github.com/JamieTemple/minidisc/releases) on the right, [docs](https://github.com/JamieTemple/minidisc/wiki) in the wiki.
 
 # Contributing
 
