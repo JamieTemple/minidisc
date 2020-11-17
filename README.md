@@ -13,17 +13,10 @@ Desktop management software for RISC OS
 * Desktop filters to enhance your working environment
 * A dynamic 'pop-up' toolbar
 
-# System Requirements
-
-* RISC OS version 3.10 or greater
-* Window Manager version 3.98 or greater
-* 32bit System Components
-
-# Releases
+# Downloads & user documentation
 
 .
 
-# Contact
+# Contributing
 
 .
-
