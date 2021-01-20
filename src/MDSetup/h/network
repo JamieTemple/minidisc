@@ -1,0 +1,40 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/network.h                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_NETWORK
+#define MDH_CFG_NETWORK
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_net_xxxx                                                     *
+ * Purpose   : Network options pane icon numbers.                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_net_SHAREINC   2
+#define OW_net_SHAREINT  10
+#define OW_net_SHAREREM   3
+#define OW_net_SHARESLOC  7
+#define OW_net_ARMTCPINC  8
+#define OW_net_ARMTCPINT 11
+#define OW_net_ARMTCPREM  9
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_Network  (void);
+void  OWClose_Network (void);
+
+
+#endif

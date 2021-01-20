@@ -1,0 +1,154 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : memfs.c                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/memfs.h"
+#include "MiniDisc/modules/filecore.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "MiniDisc/core/toolbar.h"
+#include "MiniDisc/core/oslib-menu.h"
+#include "minidisc/core/dirmenu.h"
+#include "MiniDisc/core/ibmenu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "oslib/osfscontrol.h"
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : MemFs_Actions                                                   *
+ * Purpose   : Memphis specific handlers for main menu clicks/warnings.        *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void MEMFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case click:
+      xos_cli("Filer_OpenDir Mem::Sprites.$");
+      break;
+
+    case follow:
+      dirMenu_FromDrive (event, FALSE);
+      break;
+  }
+}
+
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RESFS_ListDrives                                                *
+ * Purpose   : Add a menu entry in the main MiniDisc menu for Memphis.         *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *MEMFS_ListDrives (void *mainmenu)
+{
+  db_fn_begin();
+
+  db_trace(100, "Displaying MemFS in main MD menu");
+
+  if (XUtil_ModEnsure("MemFS"))
+  {
+    DriveMenuSize++;
+    mainmenu = ibMenu_Add (mainmenu, "Mem::Sprites", "smd_ram", 1, 0);
+    proceduresInfo[DriveMenuSize].proc_ptr = MEMFS_Actions;
+    proceduresInfo[DriveMenuSize].drivenum = 0;
+    strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "Memphis:$");
+  }
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : MEMFS_TBHandler                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void MEMFS_TBHandler (void *event, void *reference)
+{
+  _kernel_swi_regs  r;
+  int               mBlock[5];
+
+
+  switch ((int)reference)
+  {
+    case 0:
+      MDTrace (1, "DataLoad");
+      FileCore_TBDataLoad   (event);
+      break;
+
+    case 1:
+      MDTrace (1, "DataSave");
+      FileCore_TBDataSave   (event);
+      break;
+
+    case 2:
+      MDTrace (1, "MouseClick");
+
+      r.r[1] = (int) mBlock;
+      _kernel_swi(0x400cf, &r, &r);  // Wimp_GetPointerInfo
+
+      switch(mBlock[2])
+      {
+        case 1:  // Adjust - Display a directory menu
+          strcpy(TB__DiscName, "Mem::Sprites.$");
+          dirMenu_SetFlags ();
+          dirMenu_FromPath (TB__DiscName, event);
+          break;
+
+        case 4:  // Select - Open the root directory of the drive
+          xos_cli("Filer_OpenDir Mem::Sprites.$");
+          break;
+      }
+      break;
+
+    default:
+      MDTrace (1, "Unidentified event");
+      break;
+  }
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : MEMFS_AddTBIcons                                                *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void MEMFS_AddTBIcons (void)
+{
+  int  i;
+
+
+  if (MDCfg->image.memFSinTbar != 0)  return;
+
+  if (!XUtil_ModEnsure("MemFS"))      return;
+
+  i = ToolBar_AddIcon("md_ram", 0, "ramfs", "Mem::Sprites", (tb_proc) MEMFS_TBHandler);
+
+  tbButtons[i].device = 0;
+  strcpy(tbButtons[i].interface, "Mem:");
+}
+

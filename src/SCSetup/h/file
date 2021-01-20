@@ -1,0 +1,51 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/sb-file.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_FILE
+#define MDH_SB_FILE
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Event.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : SD_file_<xxx>                                                   *
+ * Purpose   : Create / update 'file' dialog icon numbers.                     *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 13/02/2000 - Update - Added 'event' buttons.                    *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define SD_file_label     2
+#define SD_file_filename  4
+#define SD_file_Cancel    7
+#define SD_file_OK        6
+#define SD_file_ruleoff   9
+#define SD_file_Attach   10
+#define SD_file_Edit     11
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  SCEdit_OP1_SetIcons (window_handle window, char *filename);
+BOOL  SCOP1_DataLoad      (event_pollblock *event, void *reference);
+void  SCEdit_AddFile      (int x, int yPos, shortcuts_menu *item);
+void  SCOK1               (dialog2_block *aDialog);
+void  SCOP1               (dialog2_block *aDialog);
+void  SB_File_MainWinDrag (BOOL showDialog, event_pollblock *event);
+
+
+#endif
+

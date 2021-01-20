@@ -1,0 +1,352 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : cdfs2.c                                                         *
+ * Purpose   : (WIMP-friendly) CDFS specific code                              *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "minidisc/modules/cdfs2.h"
+
+#include "minidisc/modules/filecore.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/toolbar.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Global Variables                                                            *
+ * --------------------------------------------------------------------------- */
+dialog2_block *mddlg_cdfs_cfg,
+              *mddlg_cdfs_vol;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_ClickCfg                                                  *
+ * Purpose   : Process clicks in the CDFS configuration dialog box.            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 20/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL CDFS2_ClickCfg (event_pollblock *event, void *reference)
+{
+  char *textPtr;
+  int   dCount;
+
+
+  switch (event->data.mouse.icon)
+  {
+    case CDFSCDialog_BDown: /* buffers down */
+      textPtr = Icon_GetTextPtr(event->data.mouse.window, CDFSCDialog_Buffers);
+           if (strcmp(textPtr,   "8k") == 0)  strcpy(textPtr, "None");
+      else if (strcmp(textPtr,  "16k") == 0)  strcpy(textPtr, "8k");
+      else if (strcmp(textPtr,  "32k") == 0)  strcpy(textPtr, "16k");
+      else if (strcmp(textPtr,  "64k") == 0)  strcpy(textPtr, "32k");
+      else if (strcmp(textPtr, "128k") == 0)  strcpy(textPtr, "64k");
+      else if (strcmp(textPtr, "256k") == 0)  strcpy(textPtr, "128k");
+      else if (strcmp(textPtr, "512k") == 0)  strcpy(textPtr, "256k");
+      Icon_ForceRedraw(event->data.mouse.window, CDFSCDialog_Buffers);
+      break;
+
+    case CDFSCDialog_BUp: /* buffers up   */
+      textPtr = Icon_GetTextPtr(event->data.mouse.window, CDFSCDialog_Buffers);
+           if (strcmp(textPtr, "256k") == 0)  strcpy(textPtr, "512k");
+      else if (strcmp(textPtr, "128k") == 0)  strcpy(textPtr, "256k");
+      else if (strcmp(textPtr,  "64k") == 0)  strcpy(textPtr, "128k");
+      else if (strcmp(textPtr,  "32k") == 0)  strcpy(textPtr, "64k");
+      else if (strcmp(textPtr,  "16k") == 0)  strcpy(textPtr, "32k");
+      else if (strcmp(textPtr,   "8k") == 0)  strcpy(textPtr, "16k");
+      else if (strcmp(textPtr, "None") == 0)  strcpy(textPtr, "8k");
+      Icon_ForceRedraw(event->data.mouse.window, CDFSCDialog_Buffers);
+      break;
+
+    case CDFSCDialog_DDown: /* drives down  */
+      textPtr = Icon_GetTextPtr(event->data.mouse.window, CDFSCDialog_Drives);
+      dCount  = atoi(textPtr);
+      if (dCount > 0)
+      {
+        dCount --;
+        sprintf(textPtr, "%2d", dCount);
+        Icon_ForceRedraw(event->data.mouse.window, CDFSCDialog_Drives);
+      }
+      break;
+
+    case CDFSCDialog_DUp: /* drives up    */
+      textPtr = Icon_GetTextPtr(event->data.mouse.window, CDFSCDialog_Drives);
+      dCount  = atoi(textPtr);
+      if (dCount < 100)
+      {
+        dCount++;
+        sprintf(textPtr, "%2d", dCount);
+        Icon_ForceRedraw(event->data.mouse.window, CDFSCDialog_Drives);
+      }
+      break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_OpenCfg                                                   *
+ * Purpose   : Open the CDFS 'Configuration' dialog, set icons, register code. *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 20/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void CDFS2_OpenCfg (dialog2_blockptr aDialog)
+{
+  char buffer[4];
+
+
+  /* Update number of devices. */
+  sprintf(buffer, "%d", cdfs_get_number_of_drives());
+  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Drives), buffer, 3);
+  Icon_ForceRedraw(aDialog->window, CDFSCDialog_Drives);
+
+  /* Update buffers. */
+  switch(cdfs_get_buffer_size())
+  {
+    case 0:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers), "None", 5); break;
+    case 1:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers),   "8k", 5); break;
+    case 2:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers),  "16k", 5); break;
+    case 3:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers),  "32k", 5); break;
+    case 4:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers),  "64k", 5); break;
+    case 5:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers), "128k", 5); break;
+    case 6:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers), "256k", 5); break;
+    case 7:  strncpy(Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers), "512k", 5); break;
+  }
+  Icon_ForceRedraw(aDialog->window, CDFSCDialog_Buffers);
+
+  /*  Set up click event handlers for the bar & well. */
+  Event_Claim (event_CLICK, aDialog->window, CDFSCDialog_BUp,   CDFS2_ClickCfg, NULL);
+  Event_Claim (event_CLICK, aDialog->window, CDFSCDialog_BDown, CDFS2_ClickCfg, NULL);
+  Event_Claim (event_CLICK, aDialog->window, CDFSCDialog_DUp,   CDFS2_ClickCfg, NULL);
+  Event_Claim (event_CLICK, aDialog->window, CDFSCDialog_DDown, CDFS2_ClickCfg, NULL);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_OKCfg                                                     *
+ * Purpose   : Update CDFS configuration, OK pressed in dialog.                *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void CDFS2_OKCfg (dialog2_blockptr aDialog)
+{
+  char *textPtr;
+  int  i = 6;    /* Default to 256k if we cannot read the setting (should not EVER happen) */
+
+
+  textPtr = Icon_GetTextPtr(aDialog->window, CDFSCDialog_Buffers);
+
+  if (strcmp(textPtr, "None") == 0) i = 0;
+  if (strcmp(textPtr,   "8k") == 0) i = 1;
+  if (strcmp(textPtr,  "16k") == 0) i = 2;
+  if (strcmp(textPtr,  "32k") == 0) i = 3;
+  if (strcmp(textPtr,  "64k") == 0) i = 4;
+  if (strcmp(textPtr, "128k") == 0) i = 5;
+  if (strcmp(textPtr, "256k") == 0) i = 6;
+  if (strcmp(textPtr, "512k") == 0) i = 7;
+
+  cdfs_set_buffer_size(i);
+
+  textPtr = Icon_GetTextPtr(aDialog->window, CDFSCDialog_Drives);
+  i       = atoi(textPtr);
+
+  if (cdfs_get_number_of_drives() != i)  cdfs_set_number_of_drives(i);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_ClickVol                                                  *
+ * Purpose   : Some sod just clicked on the CD volume dialog slider bar!       *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL CDFS2_ClickVol (event_pollblock *event, void *reference)
+{
+  mouse_block pointer;
+  window_state winState;
+
+
+  Wimp_GetPointerInfo (&pointer);
+  Wimp_GetWindowState (event->data.mouse.window, &winState);
+  xwimp_resize_icon   (event->data.mouse.window, CDFSVDialog_Bar, 52, -380, 92,
+                       pointer.pos.y - winState.openblock.screenrect.max.y);
+  Icon_ForceRedraw    (event->data.mouse.window, CDFSVDialog_Well);
+  Icon_ForceRedraw    (event->data.mouse.window, CDFSVDialog_Bar);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_OpenVol                                                   *
+ * Purpose   : CDFS volume dialog opened. Set slider & register handlers.      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void CDFS2_OpenVol (dialog2_blockptr aDialog)
+{
+  int volume;
+
+
+  db_fn_begin();
+
+  /* Update drive number */
+  Icon_SetInteger (aDialog->window, CDFSVDialog_Drive, (int)(aDialog->reference));
+
+  /* Box size :  +---+ 92,-28
+                 |   |
+                 |   |
+                 |   |
+                 |   |
+                 |   |
+         52,-380 +---+                                                                     */
+
+  volume = CDFS_GetVolAsPercent ((int)(aDialog->reference));
+
+  db_tracef(1, "Volume level was %d", volume);
+
+  volume = (int)((double)volume * 3.52);
+
+  /* Fix slider position. */
+  xwimp_resize_icon (aDialog->window, CDFSVDialog_Bar, 52, -380, 92, -380 + (int) volume);
+  Icon_ForceRedraw  (aDialog->window, CDFSVDialog_Well);
+  Icon_ForceRedraw  (aDialog->window, CDFSVDialog_Bar);
+
+  /*  Set up click event handlers for the bar & well. */
+  Event_Claim (event_CLICK, aDialog->window, CDFSVDialog_Bar,  CDFS2_ClickVol, (void *)0);
+  Event_Claim (event_CLICK, aDialog->window, CDFSVDialog_Well, CDFS2_ClickVol, (void *)1);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_OKVol                                                     *
+ * Purpose   : 'OK' clicked in CDFS volume dialog - Update CD drive volume.    *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void CDFS2_OKVol (dialog2_blockptr aDialog)
+{
+  icon_block iconInfo;
+  double     volume;
+
+
+  Wimp_GetIconState(aDialog->window, CDFSVDialog_Bar, &iconInfo);
+
+  volume = (1 - ((double)iconInfo.workarearect.min.y - (double)iconInfo.workarearect.max.y));
+  volume = volume / 352 * (float)65535;  /* cd_VOLUME_LIMIT */
+
+  CDFS_SetVol ((int)(aDialog->reference), (int)volume);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS2_OpenDialogs                                               *
+ * Purpose   : Process clicks on dialog-box options in the CDFS control menu.  *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void CDFS2_OpenDialogs(event_pollblock *event, int value)
+{
+  char *menuText = MenuGet_Item(mainmenu, event->data.selection[0])->icondata.indirecttext.buffer;
+  char  aBuffer[32];  /* Max control menu entry text length */
+  int   driveNumber = 0;
+
+
+  for (driveNumber = strlen(menuText); menuText[driveNumber] >= '0'; driveNumber--);
+  driveNumber = atoi(menuText + driveNumber + 1);
+
+  menuText = MenuGet_TextAtLevel(event, 1, 0);
+
+  Msgs_Lookup ("m.conf", aBuffer, 31);                                 /* -- Configure -- */
+  if (strncmp(menuText, aBuffer, strlen(aBuffer)) == 0)
+  {
+    mddlg_cdfs_cfg->reference = (void *)driveNumber;
+    Dialog2_OpenDialogStatic(mddlg_cdfs_cfg, open_CENTEREDUNDERPOINTER);
+  }
+
+  Msgs_Lookup ("m.volu", aBuffer, 31);                                 /* -- Volume    -- */
+  if (strncmp(menuText, aBuffer, strlen(aBuffer)) == 0)
+  {
+    mddlg_cdfs_vol->reference = (void *)driveNumber;
+    Dialog2_OpenDialogStatic(mddlg_cdfs_vol, open_CENTEREDUNDERPOINTER);
+  }
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : CDFS_FollowControlMenu                                          *
+ * Purpose   : Process 'MENUWARN' events on the CDFS control submenu.          *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 19/02/2000 - Update - Moved to cope with dialogs.               *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void CDFS_FollowControlMenu (event_pollblock *event, char *fsn_desc, int drivenum)
+{
+  char  aBuffer[32];  /* Max control menu entry text length */
+  char *menuText = MenuGet_Item(mainmenu,
+                  event->data.message.data.menuwarn.selection[0]) -> icondata.indirecttext.buffer;
+  int   driveNumber = 0;
+
+
+  for (driveNumber = strlen(menuText); menuText[driveNumber] >= '0'; driveNumber--);
+  driveNumber = atoi(menuText + driveNumber + 1);
+
+  if (MenuGet_SubMenuValue(event, 1) == 0)  dirMenu_FromDrive (event, FALSE);  /* -- Path -- */
+  else
+  {
+    menuText = MenuGet_TextAtLevel(event, 1, 1);
+
+    Msgs_Lookup ("m.conf", aBuffer, 31);                                 /* -- Configure -- */
+    if (strncmp(menuText, aBuffer, strlen(aBuffer)) == 0)
+    {
+      mddlg_cdfs_cfg->reference = (void *)driveNumber;
+      Dialog2_OpenDialogMenuLeaf(event, mddlg_cdfs_cfg);
+    }
+
+    Msgs_Lookup ("m.volu", aBuffer, 31);                                 /* -- Volume    -- */
+    if (strncmp(menuText, aBuffer, strlen(aBuffer)) == 0)
+    {
+      mddlg_cdfs_vol->reference = (void *)driveNumber;
+      Dialog2_OpenDialogMenuLeaf(event, mddlg_cdfs_vol);
+    }
+  }
+}
+

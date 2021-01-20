@@ -1,0 +1,67 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/iconbar.h                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_ICONBAR
+#define MDH_CFG_ICONBAR
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_icon_xxxx                                                    *
+ * Purpose   : Iconbar options pane icon numbers.                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+#define OW_icn_ICOND    9    // Iconbar appearance display field
+#define OW_icn_ICONM    8    // Iconbar appearance menu selector icon
+#define OW_icn_ICONUD  10    // Iconbar appearance writable icon
+
+#define OW_icn_SHIFT   25    // Iconbar action SHIFT modifier button
+#define OW_icn_CTRL    26    // Iconbar action CTRL modifier button
+#define OW_icn_ALT     27    // Iconbar action ALT modifier button
+
+#define OW_icn_SELACTD 12    // SELECT action display field
+#define OW_icn_SELACTM 11    // SELECT action menu selector icon
+#define OW_icn_SELECT   4    // SELECT action writable / display icon
+#define OW_icn_SELECTM 15    // SELECT action shortcuts menu selector icon
+
+#define OW_icn_ADJACTD 14    // ADJUST action display field
+#define OW_icn_ADJACTM 13    // ADJUST action menu selector icon
+#define OW_icn_ADJUST   5    // ADJUST action writable / display icon
+#define OW_icn_ADJUSTM 16    // ADJUST action shortcuts menu selector icon
+
+#define OW_icn_FDRAGD  21    // DRAG action display field
+#define OW_icn_FDRAGM  20    // DRAG action menu selector icon
+#define OW_icn_FDRAGL  19    // DRAG action writable / display icon
+#define OW_icn_FDRAGS  18    // DRAG action shortcuts menu selector icon
+
+#define iconbar_maxActions     6
+#define iconbar_maxDragActions 6
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  OWFill_Iconbar             (void);
+extern void  OWClose_Iconbar            (void);
+extern BOOL  OptionPane_ClickIconbar    (event_pollblock *event, void *reference);
+extern BOOL  OptionPane_MenuIconType    (event_pollblock *event, menu_ptr menu);
+extern BOOL  OptionPane_MenuActionType  (event_pollblock *event, menu_ptr menu, int icon);
+extern BOOL  OPMenu_Iconbar_fdrag       (event_pollblock *event, menu_ptr menu);
+extern int   CalcActionModifiers        (void);
+extern BOOL  OPMenu_Iconbar_AddShortcut (event_pollblock *event, menu_ptr menu);
+extern BOOL  OPMenu_Iconbar_DelOpts     (event_pollblock *event, menu_ptr menu);
+
+
+#endif

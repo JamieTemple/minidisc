@@ -1,0 +1,87 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/menu.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:01:02 $
+
+   Handy menu manipulaton macros.
+
+   Although this file can be safely included in any other, if you start using
+   these macros, then you'll need to have DeskLib:Menu already included as well.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_SHARED_MENU
+#define MDH_SHARED_MENU
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MenuGet_Item
+   Purpose   : Returns a pointer to the requested item within a menu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+
+#define MenuGet_Item(menu, item) ((menu_item *)&((menu_item *)                  \
+                                 (((int) menu) + sizeof(menu_block)))[item])
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MenuGet_Text
+   Purpose   : Return text selected at the currently open submenu
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : ONLY works for MenuWarning events, NOT clicks.
+--------------------------------------------------------------------------------
+*/
+#define MenuGet_Text(event) MenuGet_TextAtLevel(event, NULL, 1);
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MenuAttach_Sub
+   Purpose   : Attach a submenu to the currently open menu, following an event
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define MenuAttach_Sub(title, menuText, event) MenuAttach_WritableSub(title, menuText, 0, event);
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: menu.h,v $
+   Revision 1.2  2003/10/05 16:01:02  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

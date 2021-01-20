@@ -1,0 +1,140 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/filters/pinmenu.cpp,v $
+
+   $Revision: 1.3 $
+   $Date: 2004/04/14 14:44:14 $
+
+   Process Menu clicks over the Pinboard - show a Shortcuts menu.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/shortcuts.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:WimpMsg.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_ShowShortcut
+   Purpose   : Process wimp messages to dispay a Shortcuts menu.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 06/05/2004 - Bugfix - Now assumes that we're using the default
+                            shortcuts menu if we're not passed a menu name.
+   V1.0.0    : 15/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MD_PinMenu_Message (event_pollblock *event, void *reference)
+{
+  mouse_block   ptr;
+  menu_ptr      scMenu;
+  int           i;
+  char         *menuName;
+
+
+  db->fn_begin();
+
+  if (event->data.message.header.size > sizeof(message_header))
+    menuName = event->data.message.data.bytes;
+  else
+    menuName = MDCfg->shortcut.shortcutMenu;
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    if (strcmp(shortcutsArray[i].menuName, menuName) == 0)
+    {
+      scMenu = (menu_ptr)Shortcuts_CreateMenu(event, shortcutsArray[i].first, shortcutsArray[i].menuName);
+
+      d->currentMenu.menuptr          = (int)scMenu;
+      d->currentMenu.type             = MD_menu_shortcut;
+      d->currentMenu.context.shortcut = &(shortcutsArray[i]);
+
+      Shortcuts_AddHandlers (scMenu);
+      Wimp_GetPointerInfo   (&ptr);
+      Menu_Show             (scMenu, ptr.pos.x, ptr.pos.y);
+    }
+  }
+
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_PinMenu_Click
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 15/05/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int MD_PinMenu_Filter(event_data *block, _kernel_swi_regs *r)
+{
+  if (MDCfg->shortcut.catchPinClicks != 0)                   return 0;  // pin filter disabled
+  if (r->r[0] != event_CLICK)                                return 0;  // Not a CLICK event
+  if (!block->mouse.button.data.menu)                        return 0;  // Not a menu click
+  if (block->mouse.icon != -1)                               return 0;  // Not over work area
+  if (strcmp(XUtil_TaskGetName(r->r[2]), "Pinboard") != 0)   return 0;  // Not on pinboard
+
+  WimpMsg_SendTask(event_SEND, (message_action)MDMsg_ShowShortcut, NULL, 0, d->task);
+
+  r->r[0] = -1;  // Claim event
+
+
+  return -1;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: pinmenu.cpp,v $
+   Revision 1.3  2004/04/14 14:44:14  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.2  2003/09/14 12:04:17  jtemple
+   Code & comments tidied.
+   Selection of the Shortcuts menu to display is now read from the
+   MDCfg structure, rather than being passed in the WIMP message.
+
+
+--------------------------------------------------------------------------------
+*/
+
+
+

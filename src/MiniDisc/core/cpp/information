@@ -1,0 +1,146 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/information.cpp,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:08 $
+
+   'Information' window management.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/core/information.h"
+
+#include "DeskLib:Icon.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Window.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global variables
+--------------------------------------------------------------------------------
+*/
+static info_show      info_state = notShown;
+static window_handle  info_window;
+
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Info_Close
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern void Info_Close (void)
+{
+  if (info_state != notShown)
+  {
+    Window_Delete(info_window);
+    info_state = notShown;
+  }
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Info_Check
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern void Info_Check (void)
+{
+  char  abuffer[4];
+
+
+  switch (info_state)
+  {
+    case armtcp:
+      OS_ReadVarVal("InterNet$Connection", abuffer, 4);
+      if (abuffer[0] == '1')  /* Internet connection ACTIVE (dump connecting dialog) */
+        Info_Close();
+      break;
+
+    default:
+      break;
+  }
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Info_Show
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern void Info_Show (info_show whatInfo)
+{
+
+
+  info_state = whatInfo;
+
+  info_window = Window_Create("information", 20);
+
+  switch (whatInfo)
+  {
+    case armtcp:
+      /*1 = text 3 = icon*/
+      Icon_SetText (info_window, 1, "Connecting...");
+      break;
+
+    default:
+      break;
+  }
+
+  Window_Show (info_window, open_CENTERED);
+
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: information.cpp,v $
+   Revision 1.2  2003/10/05 16:00:08  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

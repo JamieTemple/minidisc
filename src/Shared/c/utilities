@@ -1,0 +1,850 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/utilities.c,v $
+
+   $Revision: 1.7 $
+   $Date: 2004/04/14 14:44:26 $
+
+   General (oslib-friendly) utility functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#include "shared/desklib.h"
+
+#include "oslib/osbyte.h"
+#include "oslib/osfile.h"
+#include "oslib/osmodule.h"
+#include "oslib/taskmanager.h"
+#include "oslib/wimp.h"
+
+
+
+#define spriteExists(spriteName) XUtil_spriteExists(spriteName)
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : spriteExists
+   Purpose   : Checks to see if a named sprite exists in the WIMP sprite pool.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/01/2001 - Preliminary implementation.
+   Notes     : An INTERNAL procedure.
+--------------------------------------------------------------------------------
+*/
+bool XUtil_spriteExists(char *spriteName)
+{
+  _kernel_swi_regs  regs;
+
+
+  regs.r[0] = 40;
+  regs.r[2] = (int) spriteName;
+
+  // Wimp_SpriteOp
+  if (_kernel_swi(0x600e9, &regs, &regs) == NULL)  return TRUE;
+  else                                             return FALSE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_FileIsDirectory
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL XUtil_FileIsDirectory(char *path)
+{
+  fileswitch_object_type  obj_type;
+
+
+  if (xosfile_read_stamped_no_path(path, &obj_type, NULL, NULL, NULL, NULL, NULL) != NULL)
+    return FALSE;
+  else
+  {
+    if ((obj_type == fileswitch_IS_DIR) || (obj_type == fileswitch_IS_IMAGE))  // !!!(?)
+      return TRUE;
+    else
+      return FALSE;
+  }
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetFileType
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_GetFileType(char *path)
+{
+  bits file_type;
+
+
+  if (xosfile_read_stamped_no_path(path, NULL, NULL, NULL, NULL, NULL, &file_type) == NULL)
+    return (int)file_type;
+  else
+    return 0;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_FileExists
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_FileExists(char *path)
+{
+  fileswitch_object_type  obj_type;
+
+
+  if (xosfile_read_stamped_no_path(path, &obj_type, NULL, NULL, NULL, NULL, NULL) != NULL)
+    return FALSE;
+  else
+  {
+    if (obj_type == fileswitch_NOT_FOUND)
+      return FALSE;
+    else
+      return TRUE;
+  }
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetDirSprite
+   Purpose   : Identify a sprite in the WIMP sprite pool to use for a specific
+               directory.  Write the sprite name into 'buffer', returning a
+               flag to determine if the sprite should be displayed with the
+               'halfsize' flag set.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 21/06/2002 - Update - Now uses a standard small dir sprite.
+   V1.0.0    : 12/01/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_GetDirSprite(char *fileName, char *buffer, char *prefix)
+{
+  int   shrinkSprite = 0;
+  char  sBuff[20];    // What is the max name length? (buffer must be + max len + 1)
+
+
+  if (fileName[0] == '!')                            // Directory is an application
+  {
+    sprintf(sBuff, "sm%s", fileName);
+    if (spriteExists(sBuff))                         // Found sm!AppName sprite
+    {
+      sprintf(buffer, "%s%s", prefix, sBuff);
+      shrinkSprite = 0;
+    }
+    else                                             // Could not find sm!AppName
+    {
+      if (spriteExists(fileName))                    // Found !AppName sprite
+      {
+        sprintf(buffer, "%s%s", prefix, fileName);
+        shrinkSprite = 1;
+      }
+      else                                           // Could not find ANY app sprite,
+      {                                              // use OS default.
+        sprintf(buffer, "%ssmall_app", prefix);
+        shrinkSprite = 0;
+      }
+    }
+  }
+  else                                               // Directory is just that (a directory).
+  {
+    sprintf(buffer, "%ssmall_dir", prefix);
+    shrinkSprite = 0;
+  }
+
+
+  return shrinkSprite;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetBigDirSprite
+   Purpose   : Identify a sprite in the WIMP sprite pool to use for a specific
+               directory.  Write the sprite name into 'buffer', returning a
+               flag to determine if the sprite should be displayed with the
+               'halfsize' flag set.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void XUtil_GetBigDirSprite(char *fileName, char *buffer, char *prefix)
+{
+  if (fileName[0] == '!')                            // Directory is an application
+  {
+    if (spriteExists(fileName))                    // Found !AppName sprite
+      sprintf(buffer, "%s%s", prefix, fileName);
+
+    else                                           // Could not find ANY app sprite,
+      sprintf(buffer, "%sapplication", prefix);
+  }
+  else                                               // Directory is just that (a directory).
+      sprintf(buffer, "%sdirectory", prefix);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_SetKeyText
+   Purpose   : Calculates the text for a keyboard shortcut.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 27/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void XUtil_SetKeyText (int value, char *result)
+{
+  char  msgBuff[20];
+
+
+  if (value >= 0x0180)  /* Process 'special' keys. */
+  {
+    sprintf       (result, "key.%04x:Unknown", (value & 0xffffffcf));
+    Msgs_Lookup   (result, msgBuff, 19);
+    sprintf       (result, "%c%c%s", (value & 0x0010) == 0x0010 ? 0x8b : ' ',
+                   (value & 0x0020) == 0x0020 ? '^'  : ' ', msgBuff);
+  }
+
+  else if (value >= 32)  sprintf(result, "%c", value);
+
+  else if (value > 0)    sprintf(result, "^%c", value + 64);
+
+  else                   Msgs_Lookup("key.0000", result, 12);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_TaskGetName
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 13/04/2004 - Preliminary implementation.
+   Notes     : Re-implemented so it can be used in DeskLib friendly code as well.
+--------------------------------------------------------------------------------
+*/
+char *XUtil_TaskGetName (int task)
+{
+  char *result;
+
+
+  if (xtaskmanager_task_name_from_handle ((wimp_t)task, &result) == 0)
+    return result;
+  else
+    return (char *)-1;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_TaskIs
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/06/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_TaskIs (int task, char *taskName)
+{
+  char *result;
+
+
+  result = XUtil_TaskGetName(task);
+
+  if (result == (char *)-1) return FALSE;
+
+  return (strcmp(result, taskName) == 0);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_TaskGetHandle
+   Purpose   : Find the task handle of a named WIMP task.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 29/01/2000 - Update - It would seem that some tasks don't have
+                                     a zero byte to terminate their task name.
+                                     Updated compare to only check the length
+                                     of the string passed in to find.
+   V1.0.1    : 17/12/1999 - Update - No longer casts results to 'task_handle'.
+   V1.0.0    : 11/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_TaskGetHandle (char *taskName)
+{
+  char              aBuffer[16];
+  taskmanager_task  task;
+  int               context;
+  int               taskHandle = NULL;
+
+
+  db_fn_begin();
+
+  db_tracef(10, "Searching for task %s", taskName);
+
+  for(task.name = aBuffer, context = 0; context >= 0;)
+  {
+    if (xtaskmanager_enumerate_tasks(context, &task, 16, &context, NULL) != NULL)
+      break;
+
+    if (strncmp(task.name, taskName, strlen(taskName)) == 0)
+    {
+      taskHandle = (int)task.task;
+
+      break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return taskHandle;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_FindIcon
+   Purpose   : Search the iconbar for a specified tasks icon.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 22/09/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_FindIcon(char *taskName)
+{
+  wimp_message  message;
+  wimp_t        taskHandle,
+                outHandle;
+  wimp_i        iconHandle;
+
+
+  taskHandle = (wimp_t)XUtil_TaskGetHandle(taskName);
+
+  if (taskHandle == NULL) return 0;
+
+  for(iconHandle = 0;; iconHandle++)
+  {
+    message.size     = 20;                                /* Create a message block to read */
+    message.sender   = (wimp_t)d->task;                   /*  the task handle of the window */
+    message.my_ref   = 0;                                 /*  on which we've just got a     */
+    message.your_ref = 0;                                 /*  click event.                  */
+    message.action   = 0;                                 /* (Make the message a non-event) */
+
+    xwimp_send_message_to_window(wimp_USER_MESSAGE_ACKNOWLEDGE, &message, wimp_ICON_BAR,
+                                 iconHandle, &outHandle);
+
+    if (outHandle == taskHandle || outHandle == 0)  break;
+  }
+
+  return ((outHandle == taskHandle) ? iconHandle : 0);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_Refresh
+   Purpose   : Refreshes the iconbar by creating, then deleting an icon.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 21/09/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void XUtil_RefreshIB(void)
+{
+  wimp_icon_create  icreate;
+  wimp_i            icon;
+
+
+  icreate.w                                = wimp_ICON_BAR;
+  icreate.icon.flags                       = 0x1700310A;
+  icreate.icon.data.indirected_sprite.id   = (osspriteop_id)d->app_icon;
+  icreate.icon.data.indirected_sprite.area = (osspriteop_area *)d->sprites;
+  icreate.icon.data.indirected_sprite.size = 12;  // wimp max name size
+  icreate.icon.extent.x0                   = 0;
+  icreate.icon.extent.y0                   = 1;
+  icreate.icon.extent.x1                   = 0;
+  icreate.icon.extent.y1                   = 1;
+
+  xwimp_create_icon (&icreate,     &icon);
+  xwimp_delete_icon (wimp_ICON_BAR, icon);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetLeafName
+   Purpose   : Calculate the leaf name of a file from a full path name, return
+               a pointer to the start of the leaf name from within the
+               original string.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/01/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+char *XUtil_GetLeafName(char *path)
+{
+  int i;
+
+
+  for (i = strlen(path); path[i] != '.' && path[i] != ':'; i--);
+
+
+  return path+i+1;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_ModEnumerate
+   Purpose   : Enumerate installed system modules.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *XUtil_ModEnumerate (int *module_no, int *instance, char **module, int *pw)
+{
+  return (_kernel_oserror *) xosmodule_enumerate(*module_no, *instance, module_no, instance,
+                                                 (byte **)module, (void **)pw, NULL);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_ModReinit
+   Purpose   : Reinitilaise a relocatable module.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 22/09/2002 - Recode - Now uses OSLib.
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+bool XUtil_ModReinit (char *moduleName)
+{
+  if (xosmodule_reinit(moduleName) == NULL)  return TRUE;
+  else                                       return FALSE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_ModKill
+   Purpose   : Kill-off a relocatable module.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 22/09/2002 - Recode - Now uses OSLib.
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+bool XUtil_ModKill (char *moduleName)
+{
+  if (xosmodule_kill(moduleName) == NULL)  return TRUE;
+  else                                     return FALSE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_ModEnsure
+   Purpose   : Ensure a particular relocatable module is in memory.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+bool XUtil_ModEnsure (char *moduleName)
+{
+  return (xosmodule_lookup(moduleName, NULL, NULL, NULL, NULL, NULL) == NULL ? TRUE : FALSE);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_TaskSendQuit
+   Purpose   : Send a 'Quit' message to a specific WIMP task.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 14/08/2001 - Update - No longer passes our task handle.
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+bool XUtil_TaskSendQuit (char *taskName)
+{
+  wimp_t        task;
+  wimp_message  message;
+
+
+  task = (wimp_t)XUtil_TaskGetHandle (taskName);
+
+  if (task == NULL)  return FALSE;
+
+
+  message.size     = sizeof(message);
+  message.sender   = NULL;
+  message.my_ref   = NULL;
+  message.your_ref = NULL;
+  message.action   = message_QUIT;
+
+  xwimp_send_message(wimp_USER_MESSAGE, &message, task);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetFileSprite
+   Purpose   : Identify a sprite in the WIMP sprite pool to use for a specific
+               file.  Write the sprite name into 'buffer', returning a flag to
+               determine if the sprite should be displayed with the 'halfsize'
+               flag set.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/01/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_GetFileSprite(char *fileName, char *buffer, char *prefix, int fileType)
+{
+  int   shrinkSprite;
+  char  aString[20];    // What is the max name length? (buffer must be + max len + 1)
+
+
+  db_fn_begin();
+
+  if (fileType == 0)  fileType = XUtil_GetFileType(fileName);
+
+  sprintf(aString, "small_%x", fileType);
+
+  if (spriteExists(aString))
+  {
+    sprintf(buffer, "%ssmall_%x", prefix, fileType);
+    shrinkSprite = FALSE;
+  }
+  else
+  {
+    sprintf(aString, "file_%x", fileType);
+    if (spriteExists(aString))
+    {
+      sprintf(buffer, "%sfile_%x", prefix, fileType);
+      shrinkSprite = TRUE;
+    }
+    else
+    {
+      sprintf (buffer, "%ssmall_xxx", prefix);
+      shrinkSprite = FALSE;
+    }
+  }
+
+  db_tracef(1, "File type is %03x for %s (using sprite %s)", fileType, fileName, buffer);
+
+  db_fn_end();
+
+
+  return shrinkSprite;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetBigFileSprite
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void XUtil_GetBigFileSprite(char *fileName, char *buffer, char *prefix, int fileType)
+{
+  char  aString[20];    // What is the max name length? (buffer must be + max len + 1)
+
+
+  if (fileType == 0)  fileType = XUtil_GetFileType(fileName);
+
+  sprintf(aString, "file_%x", fileType);
+
+  if (spriteExists(aString))
+    sprintf(buffer, "%sfile_%x", prefix, fileType);
+
+  else
+    sprintf (buffer, "%sfile_xxx", prefix);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_CalculateFileIcon
+   Purpose   : Calculates the sprite name to use for a file in a menu.
+   Status    : Implementation (V1.2.0)
+   V1.2.0    : 09/09/2003 - Update - Replaced Mem_ calls with malloc's.
+   V1.1.0    : 04/10/2002 - Update - Changed the function API to ensure that
+                                     all utility functions are library neutral
+   V1.0.2    : 13/08/2001 - Update - Moved into 'utilities' source file.
+   V1.0.1    : 06/11/1999 - Update - Now uses 'label' in icons.
+   V1.0.0    : 30/10/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+char *XUtil_CalculateFileIcon (file_info *fileInfo, char **icn_textbuffer, char **icn_validstring,
+                               unsigned int *icn_bufflen, BOOL *icn_halfsize, BOOL *icn_shaded)
+{
+  int   buffSize;
+  char *fileName;
+  char  aString[256];
+  BOOL  shrinkSprite = TRUE,
+        shadeSprite  = FALSE;
+
+
+  /* Calculate the file leaf-name */
+  fileName = XUtil_GetLeafName(fileInfo->fileName);
+
+  /* Calculate the icon text */
+  buffSize = strlen(fileInfo->label);
+  *icn_textbuffer = malloc(buffSize+1);
+  strcpy(*icn_textbuffer, fileInfo->label);
+  *icn_bufflen = buffSize;
+
+  if (XUtil_FileIsDirectory(fileInfo->fileName))                   // A directory.
+  {
+    shrinkSprite = XUtil_GetDirSprite(fileName, aString, "S");
+    *icn_validstring = malloc (strlen(aString)+1);
+    strcpy    (*icn_validstring, aString);
+  }
+
+  else if (!XUtil_FileExists(fileInfo->fileName))                  // Could not find anything!!!
+  {
+    *icn_validstring = malloc (11);
+    strcpy    (*icn_validstring, "Ssmall_xxx");
+
+    shadeSprite  = TRUE;
+    shrinkSprite = FALSE;
+  }
+
+  else                                                             // A conventional file.
+  {
+    shrinkSprite = XUtil_GetFileSprite(fileInfo->fileName, aString, "S", 0);
+    *icn_validstring = malloc (strlen(aString)+1);
+    strcpy    (*icn_validstring, aString);
+  }
+
+  if (icn_halfsize != NULL)  *icn_halfsize = shrinkSprite;
+  if (icn_shaded   != NULL)  *icn_shaded   = shadeSprite;
+
+
+  return fileName;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_KeyPressed
+   Purpose   : Return TRUE if the specified key is being held down.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+bool XUtil_KeyPressed (int inkey)
+{
+  return osbyte1 (osbyte_IN_KEY, inkey, 0x0ff) == 0x0ff ? TRUE : FALSE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_OSVarExists
+   Purpose   : Return TRUE if the specified OS variable is defined.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+bool XUtil_OSVarExists (char *varName)
+{
+  int  used;
+
+
+  os_read_var_val_size(varName, 0, os_VARTYPE_STRING, &used, NULL);
+
+  if (used == 0)  return FALSE;
+  else            return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_GetOSVersion
+   Purpose   : Return which version of RISC OS we are running.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 10/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int XUtil_GetOSVersion(void)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  int               riscos_version;
+
+
+  regs.r[0] = 0;
+  regs.r[1] = 0;
+  anError   = _kernel_swi(0x06, &regs, &regs);
+  riscos_version = ((anError->errmess[8]  - '0') * 100) +
+                   ((anError->errmess[10] - '0') *  10) +
+                   ((anError->errmess[11] - '0'));
+
+
+  return riscos_version;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_ReadAppMemory
+   Purpose   : Reads a chunk of memory from another programs workspace.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 10/04/2004 - Preliminary implementation.
+   Notes     : This is designed for reading STRINGS ONLY
+--------------------------------------------------------------------------------
+*/
+void XUtil_ReadAppMemory(int task, void *target, void *destn, int size)
+{
+  _kernel_swi_regs  regs;
+  int               i;
+
+
+  regs.r[0] = task;                             // Target taskhandle
+  regs.r[1] = (int) target;                     // Read buffer
+  regs.r[2] = d->task;                          // Dest'n task
+  regs.r[3] = (int) destn;                      // Dest'n buffer
+  regs.r[4] = size;                             // Dest'n buffer size
+  (void) _kernel_swi(0x0600f1, &regs, &regs);   // SWI_Wimp_TransferBlock
+  regs.r[0] = 0;
+  (void) _kernel_swi(0x02006e, &regs, &regs);   // SWI_OS_SynchroniseCodeAreas
+
+  // Clean up our destination buffer.
+  for (i = 0; i < size; i++)
+    if (((char *)destn)[i] < 32)  ((char *)destn)[i] = 0;
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_AddCallBack
+   Purpose   : Adds a transient callback to the list.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 27/07/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void XUtil_AddCallBack(void call_back(void), void *handle)
+{
+  xos_add_call_back((void *)call_back, handle);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : XUtil_osclif
+   Purpose   : CLI call with variable parameter list.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 28/07/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void XUtil_osclif(char *format, ...)
+{
+  char     vbuff[1024];  // Convenient varargs global
+  va_list  va_tlist;     // ditto.
+
+
+  va_start (va_tlist, format);
+  vsprintf (vbuff, format, va_tlist);
+  va_end   (va_tlist);
+
+  xos_cli (vbuff);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: utilities.c,v $
+   Revision 1.7  2004/04/14 14:44:26  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.6  2003/10/05 16:01:06  jtemple
+   General check-in for release testing.
+
+   Revision 1.5  2003/09/09 17:33:13  jtemple
+   replaced DeskLib Mem functions with standard malloc/free calls
+
+   Revision 1.4  2003/08/29 19:25:32  jtemple
+   added debug code
+
+   Revision 1.3  2003/08/11 01:38:58  jtemple
+   now uses local variable
+
+   Revision 1.2  2003/08/10 16:51:54  uid1
+   added cvs tags & re-formatted comments
+
+
+--------------------------------------------------------------------------------
+*/
+

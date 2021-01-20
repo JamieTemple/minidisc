@@ -1,0 +1,159 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/event.c                                                  *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "scsetup/event.h"
+#include "scsetup/core.h"
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Event.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Msgs.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * (Local) Global Variables                                                    *
+ * --------------------------------------------------------------------------- */
+shortcuts_menu_head  currentEdit;
+dialog2_block       *eventsDialog = NULL;  // Default
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : eventsDialog_Dispose                                            *
+ * Purpose   : 'Cleanly' dispose of 'event' handler dialogs.                   *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 13/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void eventsDialog_Dispose (void)
+{
+  db_fn_begin();
+
+  if (eventsDialog != NULL)  Dialog2_DeleteDialog (eventsDialog);
+  eventsDialog = NULL;
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : eventsDialog_SetKeyVal                                          *
+ * Purpose   : Displays the current keyboard shortcut in the 'events' dialog.  *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 27/02/2000 - Update - Split calculation out for reuse.          *
+ * V1.0.0    : 20/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void eventsDialog_SetKeyVal (int value)
+{
+  db_fn_begin();
+
+  XUtil_SetKeyText (value, Icon_GetTextPtr(eventsDialog->window, SD_evnt_KeyVal));
+  Icon_SetCaret    (eventsDialog->window, SD_evnt_KeyVal);
+  Icon_ForceRedraw (eventsDialog->window, SD_evnt_KeyVal);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development.                                                    *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL EWH_keyHandler (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  eventsDialog_SetKeyVal (event->data.key.code);
+
+  currentEdit.event.keyboard.value = event->data.key.code;
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development.                                                    *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void EWH_CloseWindow (dialog2_blockptr aDialog)
+{
+  // MDFilters_RegisterKey (currentEdit.event.keyboard.value, NULL, NULL);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : BMenuBut                                                        *
+ * Purpose   : Process additional button clicks in the Create/Update shortcuts *
+ *             menu dialog.                                                    *
+ * Status    : Development.                                                    *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_EWH (event_pollblock *event,
+                 int              wb_src_Edit,
+                 int              wb_src_Attach,
+                 int              wb_src_Cancel,
+                 MD_event_type   *e_type,
+                 void            *event2)
+{
+  db_fn_begin();
+
+  /* 'Edit' event handler button. */
+  if (event->data.mouse.icon == wb_src_Edit)
+  {
+    eventsDialog = Dialog2_CreateDialogBlock ("events", SD_evnt_OK, SD_evnt_Cancel, NULL,
+                                              EWH_CloseWindow, NULL);
+    Dialog2_OpenDialogStatic (eventsDialog, open_UNDERPOINTER);
+    Event_Claim (event_KEY, eventsDialog->window, SD_evnt_KeyVal, EWH_keyHandler, NULL);
+    /* Set up some more handlers here.
+       For the moment, we can only process 'Keyboard' events, so shade the WIMP radio as well. */
+    Icon_Shade  (eventsDialog->window, SD_evnt_WIMP);
+
+    Icon_Select            (eventsDialog->window, SD_evnt_Keyboard); /* Select radio          */
+    Icon_Unshade           (eventsDialog->window, SD_evnt_KeyVal);   /* Populate icons        */
+    eventsDialog_SetKeyVal (currentEdit.event.keyboard.value);
+    Icon_Shade             (eventsDialog->window, SD_evnt_WIMPMsg);  /* Shade WIMP icons      */
+  }
+
+  /* 'Attach Event Handler' option button clicks */
+  else if (event->data.mouse.icon == wb_src_Attach)
+  {
+    if (Icon_GetShade(event->data.mouse.window, wb_src_Edit) == TRUE)
+          Icon_Unshade (event->data.mouse.window, wb_src_Edit);
+    else  Icon_Shade   (event->data.mouse.window, wb_src_Edit);
+  }
+
+  /* 'Cancel' button clicks */
+  else if (event->data.mouse.icon == wb_src_Cancel)
+  {
+    if (!(event->data.mouse.button.data.adjust))  shortcutDialog_Dispose();
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+

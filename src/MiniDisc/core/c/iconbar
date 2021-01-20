@@ -1,0 +1,540 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/iconbar.c,v $
+
+   $Revision: 1.4 $
+   $Date: 2004/04/14 14:44:05 $
+
+   Manages the appearance and update of the MiniDisc iconbar icon.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "minidisc/core/iconbar.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "minidisc/core/hideicons.h"
+#include "minidisc/core/iconbar_actions.h"
+#include "MiniDisc/core/information.h"
+#include "MiniDisc/core/module.h"
+#include "MiniDisc/core/menu.h"
+
+#include "MiniDisc/core/shortcuts.h"
+
+#include <time.h>
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Font.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Mem.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Resource.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Time.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables (Available in .h)
+--------------------------------------------------------------------------------
+*/
+icon_handle    IBicon;
+int            iconAnim = 1;
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_CreateNormal
+   Purpose   : Put the default MiniDisc icon on the iconbar
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_CreateNormal (void)
+{
+  _kernel_swi_regs  regs;
+  icon_createblock  icreate;
+  sprite_info       sinfo;
+  int               xeigfactor,
+                    yeigfactor;
+
+
+  Msgs_Lookup         ("app.icon", d->app_icon, sprite_MAXNAME);
+  Sprite_ReadInfo     (resource_sprites, d->app_icon, &sinfo);
+  OS_ReadModeVariable (-1, modevar_XEIGFACTOR, &xeigfactor);
+  OS_ReadModeVariable (-1, modevar_YEIGFACTOR, &yeigfactor);
+
+  icreate.window                                  = -3;
+  icreate.icondata.flags.value                    = 0x1700310A;
+  icreate.icondata.data.indirectsprite.name       = d->app_icon;
+  icreate.icondata.data.indirectsprite.spritearea = resource_sprites;
+  icreate.icondata.data.indirectsprite.nameisname = wimp_MAXNAME;
+  icreate.icondata.workarearect.min.x             = 0;
+  icreate.icondata.workarearect.min.y             = 0;
+  icreate.icondata.workarearect.max.x             = sinfo.width  << xeigfactor;
+  icreate.icondata.workarearect.max.y             = sinfo.height << yeigfactor;
+  regs.r[0]                                       = -1;
+  regs.r[1]                                       = (int)&icreate;
+  _kernel_swi(0x400c2, &regs, &regs);
+  IBicon                                          = regs.r[0];
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_CreateText
+   Purpose   : Put a MiniDisc icon on the iconbar with some text under it.
+   Status    : Implementation (V1.1.1)
+   V1.1.1    : 28/05/2001 - Bugfix - AGAIN updated icon calculation code, now
+                                     uses a FIXED icon height (as style guide)
+   V1.1.0    : 30/12/1999 - Bugfix - Now uses WIMP sprite-op code to correctly
+                            calculate iconbar icon details.
+   V1.0.2    : 09/10/1999 - Update - Now calculates icon widths.
+   V1.0.1    : 20/09/1999 - Bugfix - Fixed DeskLib's CreateIcon code bugs.
+   V1.0.0    : 12/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_CreateText (char *aTextBuffer)
+{
+  _kernel_swi_regs  regs;
+  icon_createblock  icreate;
+  font_info         stringInfo;
+  int               r[10];
+  int               yeigfactor,
+                    bufflen;
+
+
+  Msgs_Lookup         ("app.icon2", d->app_icon, sprite_MAXNAME);
+  bufflen                                           = strlen(aTextBuffer) + 1;
+  r[0]                                              = 40;
+  r[1]                                              = 0;  /* Not used */
+  r[2]                                              = (int)(d->app_icon);
+  Wimp_SpriteOp       (r);
+  OS_ReadModeVariable (-1, modevar_YEIGFACTOR, &yeigfactor);
+  Font_StringBBox     (aTextBuffer, &stringInfo);
+  Font_ConvertToOS    (stringInfo.maxx, stringInfo.minx, &stringInfo.maxx, &stringInfo.minx);
+  Font_ConvertToOS    (stringInfo.maxy, stringInfo.miny, &stringInfo.maxy, &stringInfo.miny);
+  icreate.icondata.data.indirecttext.buffer = malloc (bufflen);
+  strcpy              (icreate.icondata.data.indirecttext.buffer, aTextBuffer);
+  icreate.icondata.data.indirecttext.validstring = malloc (strlen(d->app_icon) + 3);
+  sprintf             (icreate.icondata.data.indirecttext.validstring, "s%s", d->app_icon);
+  icreate.window                                    = -3;              /* scan from left        */
+  icreate.icondata.flags.value                      = 0x1700310B;      /* Clickable text/sprite */
+  icreate.icondata.data.indirecttext.bufflen        = bufflen;
+  icreate.icondata.workarearect.min.x               = stringInfo.minx;
+  icreate.icondata.workarearect.min.y               = -16;
+  icreate.icondata.workarearect.max.x               = stringInfo.maxx;
+  icreate.icondata.workarearect.max.y               = 88;
+  regs.r[0]                                         = -1;
+  regs.r[1]                                         = (int)&icreate;
+  _kernel_swi(0x400c2, &regs, &regs);
+  IBicon                                            = regs.r[0];
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_Create
+   Purpose   : Put an icon on the iconbar
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 10/01/2000 - Update - Now uses app.info structure to select the
+                                     iconbar icon appearance.
+   V1.0.3    : 14/09/1999 - Bugfix - Now creates icons without going bang.
+   V1.0.2    : 12/09/1999 - Frees up previously used icon.
+                          - Now a dispatcher for a particular icon type.
+   V1.0.1    : 11/09/1999 - Added code to handle a custom iconbar icon.
+   V1.0.0    : 07/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_Create (void)
+{
+  char *iconText;
+
+
+  /* Dispose of the previous icon. */
+  /* Free any indirected text buffers here if necessary */
+  Event_Release          (event_CLICK, window_ICONBAR, IBicon, IconBar_Click, NULL);
+  EventMsg_ReleaseWindow (window_ICONBAR);
+  Wimp_DeleteIcon        (window_ICONBAR, IBicon);
+
+  /* Create an Iconbar icon... */
+  switch (d->iconType)
+  {
+    case 0:  /* Normal MD icon */
+      IconBar_CreateNormal();
+      break;
+    case 1:  /* Time           */
+    case 2:  /* Date           */
+    case 3:  /* Free Memory    */
+    case 4:  /* User defined   */
+      IconBar_GetText    (&iconText);
+      IconBar_CreateText (iconText);
+      free               (iconText);
+      break;
+    default: /* Should never happen! */
+      IconBar_CreateNormal();
+      break;
+  }
+
+  /* Register a 'Click' events handler for our newly created icon. */
+  Event_Claim    (event_CLICK,      window_ICONBAR, IBicon, IconBar_Click,    NULL);
+  EventMsg_Claim (message_DATALOAD, window_ICONBAR,         IconBar_DataLoad, NULL);
+  EventMsg_Claim (message_DATASAVE, window_ICONBAR,         IconBar_DataSave, NULL);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_Initialise
+   Purpose   : Iconbar initialisation code.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 13/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_Initialise (void)
+{
+  char *iconText;
+
+
+  db_fn_begin();
+
+  db_trace (100, "Initialising...");
+
+  /* Create an Iconbar icon... */
+  switch (d->iconType)
+  {
+    case 0:  /* Normal MD icon */
+      IconBar_CreateNormal();
+      break;
+
+    case 1:  /* Time           */
+    case 2:  /* Date           */
+    case 3:  /* Free Memory    */
+    case 4:  /* User defined   */
+      IconBar_GetText    (&iconText);
+      IconBar_CreateText (iconText);
+      free               (iconText);
+      break;
+
+    default: /* Should never happen! */
+      IconBar_CreateNormal();
+      break;
+  }
+
+  /* Register a 'Click' events handler for our newly created icon. */
+  Event_Claim    (event_CLICK,      window_ICONBAR, IBicon, IconBar_Click,    NULL);
+  EventMsg_Claim (message_DATALOAD, window_ICONBAR,         IconBar_DataLoad, NULL);
+  EventMsg_Claim (message_DATASAVE, window_ICONBAR,         IconBar_DataSave, NULL);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_GetText
+   Purpose   : Work out what to put under the iconbar icon.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 15/06/2001 - Bugfix - Extended iconbar text buffer.
+   V1.0.1    : 10/01/2000 - Update - Now uses app.info structure to select the
+                                     iconbar icon appearance.
+   V1.0.0    : 09/10/1999 - Preliminary implementation.
+   Notes     : The text buffer generated for the text must be freed by the
+               calling procedure after use.
+--------------------------------------------------------------------------------
+*/
+void IconBar_GetText (char **returnString)
+{
+  unsigned char  fivebyteblock[5];
+  char           iconString[65];
+  int            currentslot,
+                 nextslot,
+                 freepool;
+
+
+  /* Initialise text buffer */
+  for (currentslot = 0; currentslot < 13; currentslot++) iconString[currentslot] = 0;
+
+  switch (d->iconType)
+  {
+    case 1:  /* Time */
+      fivebyteblock[0] = 3;
+      OS_Word(osword_READCMOSCLOCK, (void *)fivebyteblock);
+      Time_ConvertDateAndTime(fivebyteblock, iconString, 6, "%24:%MI");
+      break;
+
+    case 2:  /* Date */
+      fivebyteblock[0] = 3;
+      OS_Word(osword_READCMOSCLOCK, (void *)fivebyteblock);
+      Time_ConvertDateAndTime(fivebyteblock, iconString, 8, "%DY/%MN/%YR");
+      break;
+
+    case 3:  /* Free Memory */
+      currentslot = -1;
+      nextslot    = -1;
+      freepool    = -1;
+      Wimp_SlotSize(&currentslot, &nextslot, &freepool);
+      /* Below 8 meg, show as K */
+      if (freepool / 1024 / 1024 > 8)  sprintf(iconString, "%dM", freepool / 1024 / 1024);
+      else                             sprintf(iconString, "%dK", freepool / 1024);
+      break;
+
+    case 4:  /* User defined */
+      if (MDCfg->iconbar.userDefined[0] == '%')
+      {
+        fivebyteblock[0] = 3;
+        OS_Word(osword_READCMOSCLOCK, (void *)fivebyteblock);
+        Time_ConvertDateAndTime(fivebyteblock, iconString, 64, MDCfg->iconbar.userDefined);
+      }
+      else  strncpy(iconString, MDCfg->iconbar.userDefined, 64);
+      break;
+
+    default:  /* Should never happen */
+      strcpy(iconString, "UnKnown");
+      break;
+  }
+
+  *returnString = malloc(strlen(iconString) + 1);
+  strcpy(*returnString, iconString);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_UpdateText
+   Purpose   : Update the iconbar icon text, depending upon configuration.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 09/05/2004 - Bugfix - Now calculates text width correctly.
+   V1.0.3    : 16/12/2001 - Bugfix - Shrunk difference check used to determine
+                                     if we simply update the text or redraw
+                                     the entire icon from 16 to 8 - removes a
+                                     problem with texts narrower than the icon
+   V1.0.2    : 17/08/2001 - Bugfix - Re-ordered code to ensure that the icon
+                                     has been updated before ArmTCP checks.
+   V1.0.1    : 09/10/1999 - Uses the standard text generation code.
+   V1.0.0    : 13/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_UpdateText (void)
+{
+  _kernel_swi_regs      regs;
+  font_scanstringblock  block;
+  icon_block            iconinfo;
+  font_handle           fh;
+  char                  iconString[13];
+  char                 *iconText;
+  int                   diff;
+
+
+  db_fn_begin();
+
+  IconBar_GetText (&iconText);
+  Icon_GetText    (window_ICONBAR, IBicon, iconString);
+
+  if (strcmp(iconText, iconString) != 0)
+  {
+    // read the current iconbar icon width.
+    Wimp_GetIconState(window_ICONBAR, IBicon, &iconinfo);
+
+    // Now figure out how wide it needs to be for the new text.
+    Font_GetWimpFont (&fh);
+    block.offsets.space.x  = 0;
+    block.offsets.space.y  = 0;
+    block.offsets.letter.x = 0;
+    block.offsets.letter.y = 0;
+    block.split_ch         = -1;
+    Font_ScanString  (fh, iconText, NULL, font_scan_BBOX + font_plot_GIVENHANDLE,
+                      NULL, NULL, &block, NULL, NULL);
+    Font_ConvertToOS (block.bbox.max.x, block.bbox.min.x, &regs.r[3], &regs.r[4]);
+
+    // Calculate the difference between the width of the old and new strings.
+    diff = iconinfo.workarearect.max.x - iconinfo.workarearect.min.x - regs.r[3] - regs.r[4];
+
+    db_tracef(1, "[%d %d] [%d,%d] Diff : %d", iconinfo.workarearect.max.x,
+              iconinfo.workarearect.min.x, regs.r[3], regs.r[4], diff);
+
+    if (diff < -8 || diff > 8)  IconBar_Create ();
+    else                        Icon_SetText   (window_ICONBAR, IBicon, iconText);
+  }
+
+  free (iconText);
+
+
+  db_fn_end();
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_Update
+   Purpose   : Updates the MiniDisc iconbar contents once a second (or so...)
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_Update(void)
+{
+  icon_block          iblock;
+  char               *iconName;
+  window_redrawblock  rblock;
+  char                abuffer[4] = {"   "};
+  int                 offset;
+  BOOL                refresh = TRUE;
+  _kernel_swi_regs    regs;
+  icon_block          iconInfo;
+  int                 iconNumber;
+
+
+  db_fn_begin();
+
+  /* Update the text under the iconbar icon */
+  if (d->iconType != 0)  IconBar_UpdateText ();
+
+  /* Locate icon name and incarnation offset */
+  Wimp_GetIconState(window_ICONBAR, IBicon, &iblock);
+  if (d->iconType == 0)
+  {
+    iconName = (char *)(iblock.data.indirectsprite.name);
+    offset   = 8;
+  }
+  else
+  {
+    iconName = (char *)(iblock.data.indirecttext.validstring);
+    offset   = 9;
+  }
+
+  /* Check internet connection state */
+  OS_ReadVarVal("InterNet$Connection", abuffer, 4);
+  if (abuffer[0] == '1')  /* Internet connection ACTIVE */
+  {
+    switch (iconAnim)
+    {
+      case 1:  iconName[offset] = '1';  break;
+      case 2:  iconName[offset] = '2';  break;
+      case 3:  iconName[offset] = '3';  break;
+      case 4:  iconName[offset] = '2';  break;
+    }
+    if (iconAnim == 4)  iconAnim = 1;
+    else                iconAnim++;
+  }
+  else
+  {
+    if (iconName[offset] == '0')  refresh = FALSE;
+
+    iconName[offset] = '0';
+  }
+
+  /* Refresh the icon */
+  if (refresh == TRUE)
+  {
+    Wimp_PlotIcon(&iblock);  /* re-plot the icon */
+    rblock.window = -2;
+    rblock.rect.min.x = iblock.workarearect.min.x;
+    rblock.rect.max.x = iblock.workarearect.max.x;
+    rblock.rect.min.y = iblock.workarearect.min.y;
+    rblock.rect.max.y = iblock.workarearect.max.y;
+    Wimp_ForceRedraw(&rblock);  /* force the wimp to redraw it */
+  }
+
+  /* ArmTCP support */
+  if (MDCfg->network.armTCPNoIcons == 0)
+  {
+    if (MD_ModeHasChanged)  /* Update ArmTCP following a message_MODECHANGE */
+    {
+      IconBar_HideAppIcon ("ArmTCP");
+      MD_ModeHasChanged = FALSE;
+      XUtil_RefreshIB();
+    }
+    else
+    {
+      iconNumber = XUtil_FindIcon("ArmTCP");
+
+      if (iconNumber != 0)
+      {
+        Wimp_GetIconState(-2, iconNumber, &iconInfo);  // Read the icon position...
+
+        if (iconInfo.workarearect.max.y != -500)       // Has it been hidden already?
+        {
+          db_trace(1, "Removing ArmTCP icon (1st time out!)");
+
+          regs.r[0] = -1;
+          regs.r[1] = iconNumber;
+          regs.r[2] = 0;
+          regs.r[3] = 0;
+          regs.r[4] = 0;
+          regs.r[5] = -500;
+
+          (void) _kernel_swi(0x0400fc + SWI_XOS_Bit, &regs, &regs);  /* Wimp_ResizeIcon */
+
+          MD_ModeHasChanged = FALSE;
+          XUtil_RefreshIB();
+        }
+      }
+    }
+  }
+
+  /* CDROMFS Support */
+  if (XUtil_ModEnsure("CDROMFS")      &&
+      MDCfg->cdfs.removeIcons == 0    &&
+      XUtil_TaskGetHandle("CDROMFS Filer") != NULL)
+    IconBar_HideIcon ("CDROMFSFiler");
+
+  /**/
+  if (XUtil_ModEnsure("MemFSFiler") && MDCfg->image.memFSremoveIcon == 0 &&
+      XUtil_TaskGetHandle("MemFS Filer") != NULL)
+    IconBar_HideIcon ("MemFSFiler");
+
+  /* Check the state of the Information window */
+  Info_Check();
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: iconbar.c,v $
+   Revision 1.4  2004/04/14 14:44:05  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.3  2003/10/05 16:00:05  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+

@@ -1,0 +1,67 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/shortcuts.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:14 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef __MINIDISC_SHORTCUTS_H
+#define __MINIDISC_SHORTCUTS_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global variables
+--------------------------------------------------------------------------------
+*/
+extern shortcuts_menu_head shortcutsArray[maximumNumberOfShortcuts];
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  Shortcuts_Init        (void);
+extern void  Shortcuts_AddTBIcons  (void);
+extern void  Shortcuts_TBButts     (char *tollbarButtons);
+extern void *Shortcuts_List        (void *mainmenu);
+extern void  Shortcuts_OpenMenu    (void *event);
+extern void *Shortcuts_CreateMenu  (void *event, shortcuts_menu *current, char *menuName);
+extern void  Shortcuts_AddHandlers (void *shortcutMenu);
+
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: shortcuts.h,v $
+   Revision 1.2  2003/10/05 16:00:14  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

@@ -1,0 +1,41 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/modules/hostfs.h,v $
+
+   $Revision: 1.1 $
+   $Date: 2004/04/14 14:44:20 $
+
+   HostFS support interface.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_HOSTFS
+#define MDH_HOSTFS
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void *HostFS_ListDrives (void *mainmenu);
+extern void  HostFS_AddTBIcons (void);
+
+
+#endif
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: hostfs.h,v $
+   Revision 1.1  2004/04/14 14:44:20  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+
+--------------------------------------------------------------------------------
+*/

@@ -1,0 +1,540 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/taskslice.cpp,v $
+
+   $Revision: 1.3 $
+   $Date: 2003/10/05 16:00:14 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/core/taskslice.h"
+
+#include "MiniDisc/core/ModHdr.h"
+#include "minidisc/core/module.h"
+#include "MiniDisc/core/iconbar.h"
+
+#include "shared/options.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Filing.h"
+#include "DeskLib:Hourglass.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:Wimp.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macros
+--------------------------------------------------------------------------------
+*/
+#define TS_INFOICON 4
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables (Available in .h)
+--------------------------------------------------------------------------------
+*/
+window_handle  splashWin;
+int            currentFilingSystem;
+sliceproc     *keyInitProcs,
+              *initProcs;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSlice_CloseSplash
+   Purpose   : Close the splash (startup) window.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 21/04/2001 - Update - Altered string calc for new help text.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void TaskSlice_Copywright (void)
+{
+  char *RM_HelpStr;
+  int   i;
+
+
+  db->fn_begin();
+
+  RM_HelpStr = (char *)(((int)Image__RO_Base) + *(int *)(((int)Image__RO_Base) + 0x0014));
+
+  for (i = 0; RM_HelpStr[i] != '©'; i++);  /* Locate author & Display copywright info. */
+
+  TaskSlice_SplashWrite("splash.copyw", RM_HelpStr + i + 2);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSlice_CloseSplash
+   Purpose   : Close the splash (startup) window.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 12/09/1999 - Bugfix - to stop us from closing windows at random
+                            if we've already closed the splash.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     : For some completely inexplicable reason, this code is falling
+               over if we DELETE the window in here.  I suspect that the code
+               in DeskLib is trying to free a chunk of memory that we can't
+               get at.  It would be a good idea if we simply use the WIMP
+               calls to create / delete our windows, but I'll do that some
+               other time.  Also note that leaving this window HIDDEN does not
+               remove it's event handler - I don't think that this is going to
+               make a great deal of difference for just this one window though.
+--------------------------------------------------------------------------------
+*/
+BOOL TaskSlice_CloseSplash (event_pollblock *event, void *reference)
+{
+  db->fn_begin();
+
+  if (splashWin != NULL)
+  {
+    db->trace(1, "Closing the splash window.");
+
+    Window_Hide (splashWin);
+
+    splashWin = NULL;
+  }
+
+  UNUSED(event);
+  UNUSED(reference);
+
+  db->fn_end();
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSlice_Initialise
+   Purpose   : Initialise the task-slicing routines.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 13/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL TaskSlice_Initialise (void)
+{
+  db->fn_begin();
+
+  db->trace(100, "Initialising...");
+
+  d->bootStage        = notComplete;
+  currentFilingSystem = 0;
+  splashWin           = NULL;
+  keyInitProcs        = NULL;
+  initProcs           = NULL;
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSlice_CreateSplash
+   Purpose   : Create and initialise the splash window.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 13/08/2002 - Bugfix - Was crashing if no additional build info
+                                     was available.
+   V1.0.3    : 07/09/2001 - Update - ... after redesigning the splash window.
+   V1.0.2    : 03/05/2001 - Update - Now uses CV5 cmhg generated information.
+   V1.0.1    : 23/01/2000 - Update - Now reads version information from the
+                                     Module header.
+   V1.0.0    : 13/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL TaskSlice_CreateSplash (void)
+{
+  window_state  woState;
+  int           i, w, h, x, y, xeig, yeig;
+  char          RM_Buffer[256];
+  char         *RM_HelpStr = (char *)(((int)Image__RO_Base) +
+                            *(int  *)(((int)Image__RO_Base) + 0x0014)),
+               *RM_Build;
+
+
+  db->fn_begin();
+
+  db->trace(100, "Creating splash screen...");
+
+  if (MDCfg->misc.noSplash != 0)
+  {
+    splashWin = Window_Create("splash", 0);
+
+    // Purpose...
+    Msgs_Lookup ("app.purpose",  Icon_GetTextPtr (splashWin, 5), 31);
+
+    // Version details...
+    for (i = 0; RM_HelpStr[i] != 0x09; i++);
+    RM_HelpStr = RM_HelpStr + i + 1;
+    strcpy(RM_Buffer, RM_HelpStr);
+
+    for (i = 0; RM_Buffer[i] != ')'; i++);  /* Locate end of 'standard' version + date info */
+    RM_Build = RM_Buffer + i + 2;           /* Flag the start of any extra build info.      */
+    for (; RM_Buffer[i] != '©'; i++);       /* Locate the start of the author info.         */
+    RM_Buffer[i-1] = 0;                     /* Flag the end of the extra build info.        */
+
+    if (RM_Buffer + i - 1 <= RM_Build)      /* No additional build information available.   */
+      sprintf (Icon_GetTextPtr (splashWin, 2), "Version %s",    Module_VersionString);
+    else
+      sprintf (Icon_GetTextPtr (splashWin, 2), "Version %s %s", Module_VersionString, RM_Build);
+
+    // Release date...
+    strcpy      (Icon_GetTextPtr (splashWin, 3), Module_Date);
+
+    // Drop in the prelininary 'initialising...' status message
+    Msgs_Lookup ("splash.start", Icon_GetTextPtr (splashWin, TS_INFOICON), 63);
+
+    // Register an event handler to process mouse clicks in the splash window
+    Event_Claim (event_CLICK, splashWin, event_ANY, TaskSlice_CloseSplash, NULL);
+
+    Wimp_GetWindowState (splashWin, &woState);
+
+    woState.openblock.behind = -1;
+
+    w = woState.openblock.screenrect.max.x - woState.openblock.screenrect.min.x;
+    h = woState.openblock.screenrect.max.y - woState.openblock.screenrect.min.y;
+
+    OS_ReadModeVariable(-1, modevar_XWINDOWLIMIT, &x);
+    OS_ReadModeVariable(-1, modevar_YWINDOWLIMIT, &y);
+    OS_ReadModeVariable(-1, modevar_XEIGFACTOR,   &xeig);
+    OS_ReadModeVariable(-1, modevar_YEIGFACTOR,   &yeig);
+
+    x = (x + 1) << xeig;
+    y = (y + 1) << yeig;
+
+    woState.openblock.screenrect.min.x = (x - w) / 2;      /* Center horizontally */
+    woState.openblock.screenrect.max.y = (y + h) / 4 * 3;  /* Locate 3/4 of the way up the screen */
+
+    woState.openblock.screenrect.max.x = woState.openblock.screenrect.min.x + w;
+    woState.openblock.screenrect.min.y = woState.openblock.screenrect.max.y - h;
+
+    Wimp_OpenWindow(&woState.openblock);
+  }
+  else splashWin = NULL;
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSlice_SplashWrite
+   Purpose   : Lookup a message, then display it in the splash window.
+   Status    : Implementation (V1.1.1)
+   V1.1.1    : 27/01/2001 - Update - Added debugging support.
+   V1.1.0    : 23/01/2000 - Update - Now accepts and interprets multiple args.
+   V1.0.0    : 13/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void TaskSlice_SplashWrite (char *messageText, ...)
+{
+  va_list  ap;
+
+
+  db->fn_begin();
+
+  if (splashWin != NULL)
+  {
+    db->tracef (5, "Displaying splash message : %s", messageText);
+
+    Msgs_Lookup (messageText, MD_tmp, buffer_size);
+    va_start    (ap, messageText);
+
+    vsprintf (Icon_GetTextPtr (splashWin, TS_INFOICON), MD_tmp, ap);
+
+    va_end  (ap);
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSlice_Process
+   Purpose   : Application startup timeslice processor.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 06/10/2002 - Update - Added code to catch errors returned from
+                                     disc enumeration code.
+   V1.0.3    : 01/03/2002 - Update - Forced to ALWAYS scan CDFS to fix
+                                     problems with CDROMFS.
+   V1.0.2    : 21/07/2000 - Update - Added CDFS scanner.
+   V1.0.1    : 30/12/1999 - Update - A bit of a tidy-up. - (now uses messages)
+   V1.0.0    : 24/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void TaskSlice_Process (void)
+{
+  _kernel_swi_regs  regs,
+                    regs2;
+  _kernel_oserror  *swiErr;
+  char              splashText[46],
+                    aString[buffer_size],
+                    aString2[buffer_size];
+  int               i, ignoreMe;
+
+
+  db->fn_begin();
+
+  db->tracef (1, "Null event, processing boot stage %d", d->bootStage);
+
+  switch(d->bootStage)
+  {
+    case notComplete:
+      if (splashWin != NULL)
+      {
+        Msgs_Lookup  ("splash.tsprep", splashText, 46);
+        Icon_SetText (splashWin, TS_INFOICON, splashText);
+      }
+
+      /* Some other pre-scan operations can go in here */
+
+      if (!MDCfg->misc.scanDevices) d->bootStage = scanDrives;
+      else d->bootStage = noScans;
+
+      break;
+
+
+
+    case scanDrives:
+      // Lookup FileCores' Base module address, so that we can...
+      regs.r[0] = 18;  /* Lookup */
+      regs.r[1] = (int)"FileCore%Base";
+      (void) _kernel_swi(SWI_OS_Module, &regs, &regs);
+
+
+      // ... enumerate installed FileCore filing system modules.
+      regs.r[0] = 12;
+      regs.r[2] = currentFilingSystem;                  // This is how far we've got.
+      (void) _kernel_swi(SWI_OS_Module, &regs, &regs);
+
+
+      // Record the filing system that we're about to examine
+      // so that we can pick-up where we left off next time round.
+      currentFilingSystem = regs.r[2];
+
+
+      // No more filing systems to initailise, so let's split.
+      if (currentFilingSystem == 0)
+      {
+        d->bootStage = scanCDFS;
+        break;
+      }
+
+
+      // Check to see if this is one that we're supposed to ignore
+      for (i = 0, ignoreMe = FALSE; i < 16; i++)
+      {
+        if (MDCfg->ignoreFSNs[i*24] == 0) continue;
+        if (strncmp(&MDCfg->ignoreFSNs[i*24], (char *)regs.r[5], strlen(&MDCfg->ignoreFSNs[i*24]))
+            == 0)  ignoreMe = TRUE;
+      }
+
+
+      // If we're supposed to ignore this one, then let's split.
+      if (ignoreMe)  break;
+
+
+      // Set the temporary filing system to the one we want to scan.
+      sprintf(aString,"%s:", (char *)regs.r[5]);
+      regs2.r[0] = 11;
+      regs2.r[1] = (int) aString;
+      (void) _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+
+
+      // Read the location of this filing system.
+      regs2.r[0] = 20;
+      (void) _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+
+
+      // Count number of drives attached to this filing system
+      regs2.r[8] = regs2.r[2];
+      swiErr = _kernel_swi(SWI_FileCore_Drives, &regs2, &regs2);
+
+
+      // Filing system responded happily to attached devices query.
+      if (swiErr == NULL)
+      {
+        //  Update the splash window (if it's being displayed)
+        if (splashWin != NULL)
+        {
+          aString[strlen(aString)-1] = 0;                     // Remove the trailing colon.
+          Msgs_printf(splashText, "splash.scanfs", aString);
+          Icon_SetText(splashWin, TS_INFOICON, splashText);
+          aString[strlen(aString)-1] = ':';                   // Restore the trailing colon.
+        }
+
+
+        // Canonicalise paths for each floppy disc found.
+        for (i = 0; i < regs2.r[1]; i++)
+        {
+          db->tracef (10, "Scanning floppy disc %s:%d", aString, regs2.r[1]);
+
+          sprintf(aString2, "%s%d", aString, i);
+          Filing_CanonicalisePath(aString2, aString2, buffer_size, NULL);
+        }
+
+
+        // Canonicalise paths for each harddisc found.
+        for (i = 0; i < regs2.r[2]; i++)
+        {
+          db->tracef (10, "Scanning harddisc %s:%d", aString, regs2.r[2]);
+
+          sprintf(aString2, "%s%d", aString, i);
+          Filing_CanonicalisePath(aString2, aString2, buffer_size, NULL);
+
+        }
+      }
+
+
+      // Restore the current filing system.
+      regs2.r[0] = 19;
+      (void) _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+      break;
+
+
+
+    case noScans:
+      if (splashWin != NULL)
+      {
+        Msgs_printf  (splashText, "splash.noscans");
+        Icon_SetText (splashWin, TS_INFOICON, splashText);
+      }
+
+      d->bootStage = scanCDFS;  /* Force things to ALWAYS scan CDFS drives. */
+      break;
+
+
+
+    case scanCDFS:
+      /* !!!!!!!!! == 0 !!!!!!!!! */
+      if (MDCfg->cdfs.cdromfs == 999)  /* Only if CDROMFS support required */
+      {
+        Hourglass_On();
+
+        if (splashWin != NULL)
+        {
+          Msgs_printf(splashText, "splash.scanfs", "CDFS");
+          Icon_SetText(splashWin, TS_INFOICON, splashText);
+        }
+
+      d->bootStage = scanCDFS2;
+      }
+      else
+        d->bootStage = allDone;
+      break;
+
+
+
+    case scanCDFS2:
+      regs2.r[0] = 11;  /* Set temporary FS */
+      regs2.r[1] = (int) "CDFS::";
+      swiErr = _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+
+      if (swiErr == NULL)
+      {
+        swiErr = _kernel_swi(0x41e84, &regs2, &regs2);  /* CDFS Get number of drives. */
+
+        if (swiErr == NULL)
+        {
+          for (i = 0; i < regs2.r[0]; i++)
+          {
+            sprintf(aString2, "CDFS::%d.$", i);
+            Filing_CanonicalisePath(aString2, aString2, buffer_size, NULL);
+          }
+        }
+
+        regs2.r[0] = 19;  /* Restore current FS */
+        swiErr = _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+      }
+
+      Hourglass_Off();
+
+      d->bootStage = allDone;
+      break;
+
+
+
+    case allDone:
+    default:
+      TaskSlice_CloseSplash(NULL, NULL);
+      d->bootStage = windowClosed;
+      break;
+
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: taskslice.cpp,v $
+   Revision 1.3  2003/10/05 16:00:14  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

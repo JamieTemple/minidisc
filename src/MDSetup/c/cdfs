@@ -1,0 +1,103 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/cdfs.c                                                   *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/cdfs.h"
+
+#include "DeskLib:Icon.h"
+#include "DeskLib:Msgs.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_CDFS                                                     *
+ * Purpose   : Populate the 'CDFS' options pane.                               *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 19/02/2000 - Update - Added 'player' support.                   *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_CDFS(void)
+{
+  Icon_SetSelect(prefspane, OW_cdf_INTBAR,  !tempCfg.cdfs.inTbar);
+  Icon_SetSelect(prefspane, OW_cdf_INCLUDE, !tempCfg.cdfs.inMenu);
+  Icon_SetSelect(prefspane, OW_cdf_NOICONS, !tempCfg.cdfs.removeIcons);
+  Icon_SetSelect(prefspane, OW_cdf_AUTODET, !tempCfg.cdfs.autoDetect);
+  Icon_SetSelect(prefspane, OW_cdf_CDROMFS, !tempCfg.cdfs.cdromfs);
+
+  if (strlen(tempCfg.cdfs.playerPath) < 2 || tempCfg.cdfs.playerPath == NULL)
+  {
+    Icon_Deselect (prefspane, OW_cdf_USEEXT);
+    Icon_Shade    (prefspane, OW_cdf_PLAYER);
+    Icon_SetText  (prefspane, OW_cdf_PLAYER, "");
+  }
+  else
+  {
+    Icon_Select  (prefspane, OW_cdf_USEEXT);
+    Icon_Unshade (prefspane, OW_cdf_PLAYER);
+    Icon_SetText (prefspane, OW_cdf_PLAYER, tempCfg.cdfs.playerPath);
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_CDFS                                                    *
+ * Purpose   : Record options from the CDFS pane before closing.               *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 19/02/2000 - Update - Added player support.                     *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_CDFS (void)
+{
+  tempCfg.cdfs.inMenu      = !Icon_GetSelect(prefspane, OW_cdf_INCLUDE);
+  tempCfg.cdfs.inTbar      = !Icon_GetSelect(prefspane, OW_cdf_INTBAR);
+  tempCfg.cdfs.removeIcons = !Icon_GetSelect(prefspane, OW_cdf_NOICONS);
+  tempCfg.cdfs.autoDetect  = !Icon_GetSelect(prefspane, OW_cdf_AUTODET);
+  tempCfg.cdfs.cdromfs     = !Icon_GetSelect(prefspane, OW_cdf_CDROMFS);
+  reAssignText(OW_cdf_PLAYER,  tempCfg.cdfs.playerPath);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_ClickCDFS                                            *
+ * Purpose   : Process clicks on buttons in the 'CDFS' options pane.           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_ClickCDFS (event_pollblock *event, void *reference)
+{
+  char aBuffer[128];
+
+
+  if (event->data.mouse.window == prefspane && event->data.mouse.icon == OW_cdf_USEEXT)
+  {
+    free(tempCfg.cdfs.playerPath);
+
+    if (Icon_GetSelect(prefspane, OW_cdf_USEEXT))
+    {
+      Msgs_Lookup("conf.cdfsapp", aBuffer, 127);
+      tempCfg.cdfs.playerPath = malloc(strlen(aBuffer) + 1);
+      strcpy(tempCfg.cdfs.playerPath, aBuffer);
+    }
+    else
+    {
+      tempCfg.cdfs.playerPath = malloc(1);
+      strcpy(tempCfg.cdfs.playerPath, "");
+    }
+    OWFill_CDFS();
+  }
+
+
+  return TRUE;
+}
+
+

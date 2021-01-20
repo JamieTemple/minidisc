@@ -1,0 +1,19 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : /modules/rmfs.h                                                 *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_RMFS
+#define MDH_RMFS
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void *RMFS_ListDrives (char *device_name, int hard, int floppy, void *mainmenu);
+extern void  RMFS_AddTBIcons (void);
+
+
+#endif

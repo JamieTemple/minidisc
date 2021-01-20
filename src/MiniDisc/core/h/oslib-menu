@@ -1,0 +1,71 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/oslib-menu.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:11 $
+
+   Main menu management code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef MDH_SAFEMENU
+#define MDH_SAFEMENU
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/menu.h"
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  MenuDump               (void *menu);
+extern int   MenuGet_SubMenuLevel   (void *event);
+extern int   MenuGet_SubMenuValue   (void *event, int level);
+extern void *MenuGet_SubMenuAddress (void *event);
+extern void *MenuAttach_WritableSub (char *title, char *menuText, int buffSize, void *event);
+extern char *MenuGet_TextAtLevel    (void *event, int level, int eventType);
+extern void  MenuRuleOff            (void *aMenu, int index);
+extern void  MenuUpdate_Item        (void *event, int entry, char *newText);
+extern void *MenuCreate_Sub         (char *title, char *menuText, void *event);
+extern void *MenuCreate_SubMenu     (void *aMenu, void *event);
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: oslib-menu.h,v $
+   Revision 1.2  2003/10/05 16:00:11  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

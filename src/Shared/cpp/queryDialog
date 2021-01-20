@@ -1,0 +1,237 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/queryDialog.cpp,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/11 11:46:04 $
+
+   General-purpose user-query dialog box.
+
+   (This is a part of the 'shared/stdhandlers.h' code)
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include <stdarg.h>
+
+#include "shared/global.h"
+
+#include "shared/stdhandlers.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Sound.h"
+#include "DeskLib:Template.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:Window.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macros
+--------------------------------------------------------------------------------
+*/
+
+// Icon numbers in the template.
+#define QDIALOG_MESSAGE 0
+#define QDIALOG_OK      1
+#define QDIALOG_CANCEL  4
+#define QDIALOG_EXTRA   5
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global variables
+--------------------------------------------------------------------------------
+*/
+
+// The current result-state of the dialog box.
+static qdResult  qDialog_choice;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : qDialog_KeyPressed
+   Purpose   : Process key-press events in our query dialog box.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 28/09/2003 - Preliminary implementation.
+   Notes     : An INTERNAL procedure.
+--------------------------------------------------------------------------------
+*/
+static BOOL qDialog_KeyPressed(event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  db_tracef(50, "Key pressed - value %d", event->data.key.code);
+
+  switch(event->data.key.code)
+  {
+    case 27:  // (Escape)
+      qDialog_choice = qdResult_Cancel;
+      break;
+
+    case 13:  // (Return)
+      qDialog_choice = qdResult_OK;
+      break;
+
+    default:  // Do nothing, we only change state
+      break;  // after keys that we're interested in.
+  }
+
+  UNUSED(reference);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : qDialog_MouseClick
+   Purpose   : Process mouse-click events in our query dialog box.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 28/09/2003 - Preliminary implementation.
+   Notes     : An INTERNAL procedure.
+--------------------------------------------------------------------------------
+*/
+static BOOL qDialog_MouseClick(event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  switch(event->data.mouse.icon)
+  {
+    case QDIALOG_CANCEL:
+      qDialog_choice = qdResult_Cancel;
+      break;
+
+    case QDIALOG_OK:
+      qDialog_choice = qdResult_OK;
+      break;
+
+    case QDIALOG_EXTRA:
+      qDialog_choice = qdResult_Extra;
+      break;
+
+    default:  // Although, to be honest, we shouldn't really get here.
+      break;
+  }
+
+  UNUSED(reference);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : queryDialog
+   Purpose   : Generic confirmation dialog box.
+   Status    : Implementation (V2.0.0)
+   V2.0.0    : 28/09/2003 - Update - Now more stand-alone.  Also supports the
+                                     'extra' button.
+   V1.0.0    : 13/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+qdResult queryDialog (char *message, char *b_default, char *b_cancel, char *b_extra)
+{
+  window_handle  confirmDialog;
+
+
+  db_fn_begin();
+
+  confirmDialog = Window_Create("query", template_TITLEMIN);
+
+  Msgs_Lookup   (message, Icon_GetTextPtr(confirmDialog, QDIALOG_MESSAGE), 200);
+
+  if (b_default != NULL)
+    Msgs_Lookup (b_default, Icon_GetTextPtr(confirmDialog, QDIALOG_OK), 10);
+  Icon_SetFlags (confirmDialog, QDIALOG_OK, 0x400000, b_default == NULL);
+
+  if (b_cancel != NULL)
+    Msgs_Lookup (b_cancel, Icon_GetTextPtr(confirmDialog, QDIALOG_CANCEL), 10);
+  Icon_SetFlags (confirmDialog, QDIALOG_CANCEL, 0x400000, b_cancel == NULL);
+
+  if (b_extra != NULL)
+    Msgs_Lookup (b_extra, Icon_GetTextPtr(confirmDialog, QDIALOG_EXTRA), 10);
+  Icon_SetFlags (confirmDialog, QDIALOG_EXTRA, 0x400000, b_extra == NULL);
+
+  Event_Claim   (event_KEY,   event_ANY,     event_ANY, qDialog_KeyPressed, NULL);
+  Event_Claim   (event_CLICK, confirmDialog, event_ANY, qDialog_MouseClick, NULL);
+
+  Window_Show   (confirmDialog, open_CENTERED);
+
+  Sound_SysBeep ();
+
+  Pointer_RestrictToWindow (confirmDialog);
+  Window_GainCaret         (confirmDialog);
+
+  qDialog_choice = qdResult_Unknown;  // Flag no choice made yet.
+
+  do
+  {
+    Event_Poll ();
+  } while (qDialog_choice == qdResult_Unknown);
+
+  Pointer_Unrestrict ();
+
+  Window_Delete (confirmDialog);  // note: this fn also removed the event handlers for us.
+
+  Event_Release (event_KEY, event_ANY, event_ANY, qDialog_KeyPressed, NULL);
+
+  db_tracef(10, "Dialog returned value %d", qDialog_choice);
+
+  db_fn_end();
+
+
+  return qDialog_choice;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: queryDialog.cpp,v $
+   Revision 1.2  2003/10/11 11:46:04  jtemple
+   Added code to check to see if we've been passed a valid pointer
+   before we do a Msgs_ lookup on it.
+
+   Revision 1.1  2003/09/28 15:17:03  jtemple
+   Moved out of shared/stdhandlers.cpp
+   Made more stand-alone, supports 'extra' button and key presses.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

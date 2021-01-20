@@ -1,0 +1,384 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/url.c                                                 *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "scsetup/url.h"
+#include "scsetup/core.h"
+#include "scsetup/event.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:File.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Mem.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_OP2_CalcAcornURL                                         *
+ * Purpose   : Calculate Acorn URI information.                                *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_OP2_CalcAcornURL(char *filename, char *address, char *label)
+{
+  file_handle  aHandle;
+  int          i = 0,
+               j;
+  char         anArray[buffer_size];
+
+
+  aHandle = File_Open(filename, file_READ);
+
+  if (aHandle == NULL)  return;  /* Quit quietly if we can't open the file */
+
+  do
+  {
+    j = File_Read8(aHandle);
+    if (j == file_READERROR) break;
+    if (j == 0x0a) i++;
+  } while (i != 3);
+
+  if (i == 3)  /* OK so far... */
+  {
+    /* URL */
+    File_Read8 (aHandle);                 /* Skip initial tab      */
+    memset     (anArray, 0, buffer_size); /* Clear buffer contents */
+    for (i = 0, j = 0; i < buffer_size && j != file_READERROR && j != 0x0a; i++)
+      anArray[i] = j = File_Read8 (aHandle);
+    anArray[i-1] = 0;
+    strcpy(address, anArray);
+
+    /* Title */
+    File_Read8 (aHandle);                 /* Skip initial tab      */
+    memset     (anArray, 0, buffer_size); /* Clear buffer contents */
+    for (i = 0, j = 0; i < buffer_size && j != file_READERROR && j != 0x0a; i++)
+      anArray[i] = j = File_Read8 (aHandle);
+    anArray[i-1] = 0;
+    if (j != 0x0a) anArray[i-2] = 0;
+    strcpy(label, anArray);
+  }
+
+  File_Close (aHandle);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_OP2_SetAcornIcons                                        *
+ * Purpose   : Update icons in the 'View web page' dialog after an Acorn URI   *
+ *             file is dragged to the dialog / builder window.                 *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 28/11/1999 - Update - No longer uses static arrays, but         *
+ *                          pointers into the indirected text buffers.         *
+ * V1.1.0    : 26/11/1999 - Recode - Now uses generic URL calculation code.    *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_OP2_SetAcornIcons(window_handle window, char *filename)
+{
+  SCEdit_OP2_CalcAcornURL (filename, Icon_GetTextPtr(window, SD_url_address),
+                                     Icon_GetTextPtr(window, SD_url_label));
+}
+
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_OP2_CalcANTURI                                           *
+ * Purpose   : Calculate ANT URI information.                                  *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 08/12/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_OP2_CalcANTURI(char *filename, char *address, char *label)
+{
+  file_handle  aHandle;
+  int          i = 0,
+               j;
+  char         anArray[buffer_size];
+
+
+  aHandle = File_Open(filename, file_READ);
+
+  if (aHandle == NULL)  return;  /* Quit quietly if we can't open the file */
+
+  /* URL */
+  memset (anArray, 0, buffer_size); /* Clear buffer contents */
+  for (i = 0, j = 0; i < buffer_size && j != file_READERROR && j != 0x0a; i++)
+    anArray[i] = j = File_Read8 (aHandle);
+  anArray[i-1] = 0;
+  if (j != 0x0a) anArray[i-2] = 0;
+  strcpy(address, anArray);
+
+  /* Title */
+  for (i = strlen(filename); filename[i] != '.' && filename[i] != ':'; i--);
+  strcpy(label, filename + i + 1);
+
+  File_Close (aHandle);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_OP2_SetANTIcons                                          *
+ * Purpose   : Update icons in the 'View web page' dialog after an ANT URL     *
+ *             file is dragged to the dialog / builder window.                 *
+ * Status    : Implementation (V2.0.0)                                         *
+ * V2.0.0    : 08/12/1999 - Recode - Now uses the generic icon calculation code*
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_OP2_SetANTIcons(window_handle window, char *filename)
+{
+  SCEdit_OP2_CalcANTURI(filename, Icon_GetTextPtr(window, SD_url_address),
+                                  Icon_GetTextPtr(window, SD_url_label));
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCOP2_DataLoad                                                  *
+ * Purpose   : Process files dragged to the 'Visit web page' dialog.           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCOP2_DataLoad (event_pollblock *event, void *reference)
+{
+  int  fileType = File_GetType(event->data.message.data.dataload.filename);
+
+
+  if (fileType == 0xf91)  /* Acorn URI */
+  {
+    SCEdit_OP2_SetAcornIcons (event->data.message.data.dataload.window,
+                              event->data.message.data.dataload.filename);
+    SCEdit_RefreshWindow     ();
+  }
+
+  else if (fileType == 0xb28)  /* ANT URI */
+  {
+    SCEdit_OP2_SetANTIcons (event->data.message.data.dataload.window,
+                            event->data.message.data.dataload.filename);
+    SCEdit_RefreshWindow   ();
+  }
+
+  else  Msgs_Report(MD_Err_nonuri, "err.nonuri");
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_AddURL                                                   *
+ * Purpose   : Add an icon for a URL to the shortcuts builder window.          *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 28/05/2001 - Update - Added 'mailto:' icon support.             *
+ * V1.1.0    : 05/12/1999 - Recode - Now uses DeskLib 'Mem' functions.         *
+ * V1.0.1    : 11/11/1999 - Update - Now returns icon width.                   *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_AddURL(int x, int yPos, shortcuts_menu *item)
+{
+  icon_createblock *icondata;
+  icon_handle       icon = NULL;
+  int               bufflen;
+
+
+  icondata = malloc (sizeof(icon_createblock));
+
+  icondata->window                             = scwin_main;
+  icondata->icondata.flags.value               = menuIconFlags;
+  bufflen                                      = strlen(item->shortcut.url.label) + 1;
+  icondata->icondata.data.indirecttext.bufflen = bufflen;
+
+  icondata->icondata.data.indirecttext.buffer      = malloc (bufflen);
+  icondata->icondata.data.indirecttext.validstring = malloc (11);
+  strcpy             (icondata->icondata.data.indirecttext.buffer, item->shortcut.url.label);
+
+  if (strncmp(item->shortcut.url.address, "mailto:", 7) == 0)
+    strcpy           (icondata->icondata.data.indirecttext.validstring, "smd!mailto");
+  else
+    strcpy           (icondata->icondata.data.indirecttext.validstring, "ssmall_faf");
+
+  icondata->icondata.workarearect.min.x = 32;
+  icondata->icondata.workarearect.min.y = -yPos - menuIconHeight;
+  icondata->icondata.workarearect.max.x = x + 80;
+  icondata->icondata.workarearect.max.y = -yPos;
+  Wimp_CreateIcon (icondata, &icon);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCOK2                                                           *
+ * Purpose   : 'OK' clicked in 'Visit web page' dialog.                        *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 26/05/2001 - Bugfix - Memory freeing code fixed.                *
+ * V1.0.2    : 13/02/2000 - Update - Added 'events' support.                   *
+ * V1.0.1    : 11/12/1999 - Update - Now supports 'rule-off'.                  *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCOK2(dialog2_block *aDialog)
+{
+  shortcuts_menu *aShortcut;
+  mouse_block     ptr;
+
+
+  Wimp_GetPointerInfo(&ptr);
+  if (!ptr.button.data.adjust)  eventsDialog_Dispose();  /* Close events dialog if it's open */
+
+  if (aDialog->reference != NULL)  aShortcut = (shortcuts_menu *)aDialog->reference;
+  else                             aShortcut = SCEdit_FindNewShortcut (NULL, NULL);
+  aShortcut->entry    = url;
+  aShortcut->ruledOff = Icon_GetSelect(aDialog->window, SD_url_ruleoff);
+
+  if (aDialog->reference != NULL)
+    free (aShortcut->shortcut.url.label);
+  aShortcut->shortcut.url.label = malloc (strlen(Icon_GetTextPtr(aDialog->window, SD_url_label))+1);
+  strcpy       (aShortcut->shortcut.url.label, Icon_GetTextPtr(aDialog->window, SD_url_label));
+
+  if (aDialog->reference != NULL)
+    free (aShortcut->shortcut.url.address);
+  aShortcut->shortcut.url.address = malloc (strlen(Icon_GetTextPtr(aDialog->window, SD_url_address))+1);
+  strcpy       (aShortcut->shortcut.url.address, Icon_GetTextPtr(aDialog->window, SD_url_address));
+
+  SCEdit_RefreshWindow();
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SB_URL_EWH                                                      *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SB_URL_EWH (event_pollblock *event, void *reference)
+{
+  if (reference == NULL)
+    return SCEdit_EWH (event, SD_url_Edit, SD_url_Attach, SD_url_Cancel, none, NULL);
+  else
+    return SCEdit_EWH (event, SD_url_Edit, SD_url_Attach, SD_url_Cancel,
+                       &((shortcuts_menu *)reference)->e_type,
+                       &((shortcuts_menu *)reference)->event.data);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCOP2                                                           *
+ * Purpose   : Open the 'Visit web page' dialog.                               *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 13/02/2000 - Update - Added 'events' support.                   *
+ * V1.0.2    : 11/12/1999 - Update - Now supports 'rule-off'.                  *
+ * V1.0.1    : 28/11/1999 - Update - No longer uses a temporary array.         *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCOP2(dialog2_block *aDialog)
+{
+  shortcuts_menu *next;
+
+
+  if (aDialog->reference != NULL)  /* Update */
+  {
+    next = (shortcuts_menu *)aDialog->reference;
+    Icon_SetSelect (aDialog->window, SD_url_ruleoff, next->ruledOff);
+    Icon_SetShade  (aDialog->window, SD_url_Edit,    next->e_type == none ? 1 : 0);
+    Icon_SetSelect (aDialog->window, SD_url_Attach,  next->e_type == none ? 0 : 1);
+    Icon_SetText   (aDialog->window, SD_url_label,   next->shortcut.url.label);
+    Icon_SetText   (aDialog->window, SD_url_address, next->shortcut.url.address);
+  }
+  else                             /* Create */
+  {
+    next = NULL;
+    Icon_Deselect  (aDialog->window, SD_url_ruleoff);
+    Icon_Shade     (aDialog->window, SD_url_Edit);
+    Icon_Deselect  (aDialog->window, SD_url_Attach);
+    Msgs_Lookup    ("shct.url00", Icon_GetTextPtr(aDialog->window,   SD_url_label), 255);
+    Msgs_Lookup    ("shct.url01", Icon_GetTextPtr(aDialog->window, SD_url_address), 255);
+  }
+
+  EventMsg_Claim   (message_DATALOAD, aDialog->window, SCOP2_DataLoad, NULL);
+  Event_Claim      (event_CLICK, aDialog->window, SD_url_Cancel, SB_URL_EWH, (void *)next);
+  Event_Claim      (event_CLICK, aDialog->window, SD_url_Attach, SB_URL_EWH, (void *)next);
+  Event_Claim      (event_CLICK, aDialog->window, SD_url_Edit,   SB_URL_EWH, (void *)next);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SB_URL_MainWinDrag (int fileType, BOOL showDialog, event_pollblock *event)
+{
+  shortcuts_menu *aShortcut;
+
+
+  switch (fileType)
+  {
+    case 0x0f91:  /* Acorn URL */
+      if (showDialog)
+      {
+        if (shortcutDialog != NULL)  Dialog2_DeleteDialog (shortcutDialog);
+        shortcutDialog = Dialog2_CreateDialogBlock ("surl", SD_url_OK, SD_url_Cancel,
+                                                    NULL, SCOK2, NULL);
+        Dialog2_OpenDialogStatic (shortcutDialog, open_CENTEREDUNDERPOINTER);
+        EventMsg_Claim           (message_DATALOAD, shortcutDialog->window, SCOP2_DataLoad, NULL);
+        Icon_Deselect            (shortcutDialog->window, SD_url_ruleoff);
+        SCEdit_OP2_SetAcornIcons (shortcutDialog->window,
+                                  event->data.message.data.dataload.filename);
+      }
+      else
+      {
+        aShortcut           = SCEdit_FindNewShortcut (NULL, NULL);
+        aShortcut->entry    = url;
+        aShortcut->ruledOff = FALSE;
+        SCEdit_OP2_CalcAcornURL (event->data.message.data.dataload.filename,
+                                 aShortcut->shortcut.url.address,
+                                 aShortcut->shortcut.url.label);
+        SCEdit_RefreshWindow    ();
+      }
+      break;
+
+
+    case 0x0b28:  /* ANT URI */
+      if (showDialog)
+      {
+        if (shortcutDialog != NULL)  Dialog2_DeleteDialog (shortcutDialog);
+        shortcutDialog = Dialog2_CreateDialogBlock ("surl", SD_url_OK, SD_url_Cancel,
+                                                    NULL, SCOK2, NULL);
+        Dialog2_OpenDialogStatic (shortcutDialog, open_CENTEREDUNDERPOINTER);
+        EventMsg_Claim           (message_DATALOAD, shortcutDialog->window, SCOP2_DataLoad, NULL);
+        Icon_Deselect            (shortcutDialog->window, SD_url_ruleoff);
+        SCEdit_OP2_SetANTIcons   (shortcutDialog->window,
+                                  event->data.message.data.dataload.filename);
+      }
+      else
+      {
+        aShortcut           = SCEdit_FindNewShortcut (NULL, NULL);
+        aShortcut->entry    = url;
+        aShortcut->ruledOff = FALSE;
+        SCEdit_OP2_CalcANTURI (event->data.message.data.dataload.filename,
+                               aShortcut->shortcut.url.address,
+                               aShortcut->shortcut.url.label);
+        SCEdit_RefreshWindow  ();
+      }
+      break;
+
+
+    default:
+      break;
+  }
+}

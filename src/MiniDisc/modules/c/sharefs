@@ -1,0 +1,438 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : modules/network.c                                               *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/sharefs.h"
+
+#include "minidisc/modules/filecore.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "shared/desklib.h"
+
+#include "minidisc/core/oslib-menu.h"
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/toolbar.h"
+
+#include "oslib/freeway.h"
+#include "oslib/osfscontrol.h"
+#include "oslib/sharefs.h"
+
+
+#define sfs_DISC 0x00
+#define sfs_PROT 0x01
+#define sfs_RO   0x02
+#define sfs_AUTH 0x04
+#define sfs_HIDE 0x08
+#define sfs_CD   0x10
+
+
+static int sharesCount;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Network_ClickControlMenu                                        *
+ * Purpose   : .                                                               *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Network_ClickControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  int   value    = MenuGet_SubMenuValue (event, 1);
+  char *menuText = MenuGet_TextAtLevel  (event, 0, 1);
+  FILE *handle;
+
+  char         *name,
+               *path;
+  sharefs_attr  attributes;
+  int           auth,
+                context;
+
+
+  switch (value)
+  {
+    case 0:  /* Open directory   */
+      sprintf(MD_tmp, "Filer_OpenDir Share::%s.$", menuText);
+      xos_cli(MD_tmp);
+      break;
+
+    case 1:  /* Free...          */
+      sprintf(MD_tmp, "ShowFree -FS Share::%s.$ %s", menuText, menuText);
+      xos_cli(MD_tmp);
+      break;
+
+    case 2:  /* Logon            */
+      break;
+
+    case 3:  /* Logoff           */
+      break;
+
+    case 4:  /* Unshare          */
+      if (MenuGet_SubMenuValue (event, 2) != -1)
+      {
+        sprintf(MD_tmp, "UnShare %s", MenuGet_TextAtLevel  (event, 2, 0));
+        xos_cli(MD_tmp);
+      }
+      break;
+
+    case 5:  /* Save choice      */
+      if ((handle = fopen("<MiniDisc$Choices>.Shares", "w")) != NULL)
+      {
+        fprintf(handle, "| Saved Access shares\n");
+
+        for(context = 0; context >= 0;)
+        {
+          xsharefs_enumerate_shares(0, context, &name, &path, &attributes, &context, &auth);
+
+          if (context >= 0)  /* Found a share... */
+            fprintf(handle, "Share %s %s %s %s %s\n", path, name,
+                    (attributes & sfs_PROT) == sfs_PROT ? "-protected" : "",
+                    (attributes & sfs_RO)   == sfs_RO   ? "-readonly"  : "",
+                    (attributes & sfs_CD)   == sfs_CD   ? "-cdrom"     : "");
+        }
+        fclose(handle);
+      }
+      xos_cli("SetType <MiniDisc$Choices>.Shares Obey");
+      break;
+
+    case 6:  /* Remove / restore */
+      break;
+  }
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Network_Follow                                                  *
+ * Purpose   : .                                                               *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Network_Follow(char *fsn_desc, int drivenum, void *event)
+{
+  char      discName[27],
+            lastItem[32],
+            aNewMenu[260];
+  int       subMenuLevel = MenuGet_SubMenuLevel(event);
+  bool      altPressed   = XUtil_KeyPressed(-3), /* Alt check */
+            controlMenu  = TRUE; /* Default: show control menu */
+  void     *aMenu,
+           *aSubMenuPtr;
+
+  char         *name,
+               *path;
+  sharefs_attr  attributes;
+  int           auth,
+                context;
+
+
+  discName[0] = 0;  /* Flag name as empty string */
+
+  if (MDCfg->misc.hideControl == 0 && !altPressed)  controlMenu = FALSE;
+  if (MDCfg->misc.hideControl == 1 &&  altPressed)  controlMenu = FALSE;
+
+
+  switch(subMenuLevel)
+  {
+    case 0:
+      // Display the ShareFS control sub-menu
+      if ((controlMenu) || (sharesCount == 0))
+      {
+        controlMenuOpen = TRUE;
+
+        sprintf(discName, "Share::%s.$", MenuGet_TextAtLevel(event, 0, 1));
+        Msgs_Lookup ("menu.sharefs", MD_tmp, buffer_size);
+
+        // Append restore/remove item to the bottom of the control menu definition
+        if (XUtil_TaskGetHandle ("ShareFS") == NULL)
+           Msgs_printf (lastItem, "menu.restore", "ShareFS");
+        else
+           Msgs_printf (lastItem, "menu.remove",  "ShareFS");
+
+        // Build the control menu
+        if (sharesCount == 0)  sprintf(aNewMenu, "Show shares|~%s|%s",  MD_tmp, lastItem);
+        else                   sprintf(aNewMenu, ">%s|%s|%s", discName, MD_tmp, lastItem);
+
+        aMenu = MenuAttach_Sub(discName, aNewMenu, event);  // Build the control menu
+      }
+
+      // Show a directory menu for the root directory of this share.
+      else
+      {
+        controlMenuOpen = FALSE;
+
+        aSubMenuPtr = MenuGet_SubMenuAddress (event);    // Locate sub-menu pointer address
+        if (*(int *)aSubMenuPtr > 1)                     // If pointer is valid, then...
+          MenuDump((void *)(*(int *)aSubMenuPtr));       // Dispose of attached menu, then...
+        *(int *)aSubMenuPtr = 1;                         // flag pointer as invalid.
+
+        dirMenu_SetFlags  ();
+        dirMenu_FromDrive (event, FALSE);
+      }
+      break;
+
+    case 1:
+      // Drive control sub-menu sub-menu (directory menu or unshare)
+      if(controlMenuOpen)
+      {
+        switch(MenuGet_SubMenuValue (event, 1))
+        {
+          case 0:  // root directory menu of share.
+            dirMenu_FromDrive (event, FALSE);
+            break;
+
+          case 4:  // Unshare
+            MD_tmp[0] = 0;
+            for(context = 0; context >= 0;)
+            {
+              xsharefs_enumerate_shares(0, context, &name, &path, &attributes, &context, &auth);
+
+              if (context >= 0)  /* Found a share... */
+              {
+                if (MD_tmp[0] == 0)  strcpy (MD_tmp, name);
+                else                 sprintf (MD_tmp, "%s,%s", MD_tmp, name);
+              }
+            }
+            aMenu = MenuAttach_Sub("Unshare", MD_tmp, event);
+            break;
+
+          default:
+            break;
+        }
+      }
+
+      // directory menu sub-menu (...)
+      else
+      {
+        dirMenu_SetFlags  ();
+        dirMenu_FromDrive (event, FALSE);
+      }
+      break;
+
+    default:  // directory menu sub-menu (...)
+      dirMenu_SetFlags  ();
+      dirMenu_FromDrive (event, FALSE);
+      break;
+  }
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Network_Actions                                                 *
+ * Purpose   : .                                                               *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Network_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case click:
+      FileCore_ClickGeneric (mevent, fsn_desc, drivenum, event, Network_ClickControlMenu);
+      break;
+
+    case follow:
+      Network_Follow (fsn_desc, drivenum, event);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : shareIsLocal                                                    *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+int shareIsLocal(char *shareName)
+{
+  char         *name,
+               *path;
+  sharefs_attr  attributes;
+  int           auth,
+                context;
+  os_error     *err;
+
+
+  for(context = 0; context >= 0; )
+  {
+    err = xsharefs_enumerate_shares(0, context, &name, &path, &attributes, &context, &auth);
+
+    if (err != NULL)  return FALSE;
+
+    if (context >= 0)
+      if (strcmp(shareName, name) == 0)  return TRUE;
+  }
+
+
+  return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ShareFS_ListDrives                                              *
+ * Purpose   : Add a menu entry in the main MiniDisc menu for ShareFS.         *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *ShareFS_ListDrives (void *mainmenu)
+{
+  int           auth,
+                context,
+                oSize,
+                dSize;
+  char          oName[128],
+                desc[128];
+  bits          ip_addr;
+  os_error     *err;
+
+
+  db_fn_begin ();
+
+  db_trace (100, "Displaying network drives in main MD menu");
+
+  if (XUtil_ModEnsure("Freeway"))
+  {
+    context     = 0;
+    sharesCount = 0;
+    auth        = 0;
+
+    while(context >= 0)
+    {
+      err = xfreeway_enumerate(0, freeway_TYPE_DISC, 128, oName, 128, desc, context,
+                               auth, &oSize, &dSize, &ip_addr, &context);
+
+      if (err != NULL)  break;  /* Something went wrong - bail! */
+
+      if (context >= 0)
+      {
+        db_tracef (1, "Share %10s Auth %8d (%2d %2d %2d %2d)",
+                   oName, auth, desc[0], desc[1], desc[2], desc[3]);
+
+        if (MDCfg->network.shareHideLocal != 0 ||
+            (MDCfg->network.shareHideLocal == 0 && !shareIsLocal(oName)))
+        {
+          DriveMenuSize++;
+          sharesCount++;
+
+          if ((desc[0] & sfs_CD) == sfs_CD)
+            mainmenu = ibMenu_Add (mainmenu, oName, "smd_sharecd",   1, 0);
+
+          else if ((desc[0] & sfs_PROT) == sfs_PROT)
+            mainmenu = ibMenu_Add (mainmenu, oName, "smd_shareprot", 1, 0);
+
+          else if ((desc[0] & sfs_RO)   == sfs_RO)
+            mainmenu = ibMenu_Add (mainmenu, oName, "smd_sharero",   1, 0);
+
+          else
+            mainmenu = ibMenu_Add (mainmenu, oName, "smd_share",     1, 0);
+
+          proceduresInfo[DriveMenuSize].proc_ptr = Network_Actions;
+          proceduresInfo[DriveMenuSize].drivenum = 0;
+          strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "Share:");
+        }
+      }
+    }
+
+    /* No shares found, so just put a default icon in the menu. */
+    if (sharesCount == 0)
+    {
+      db_warn (1, "No shares found, adding token menu entry.");
+
+      DriveMenuSize++;
+      mainmenu = ibMenu_Add (mainmenu, "ShareFS", "smd_net", 1, 0);
+      proceduresInfo[DriveMenuSize].proc_ptr = Network_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = 1;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "ShareFS");
+    }
+
+    MenuRuleOff(mainmenu, DriveMenuSize);
+  }
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ShareFS_AddTBIcons                                              *
+ * Purpose   : Add toolbar buttons for ShareFS.                                *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void ShareFS_AddTBIcons (void)
+{
+  int           auth,
+                context,
+                oSize,
+                dSize;
+  char          oName[128],
+                desc[128];
+  bits          ip_addr;
+  os_error     *err;
+
+
+  if (MDCfg->network.shareInTbar != 0)  return;
+
+  if (!XUtil_ModEnsure("Freeway"))  return;
+
+  context     = 0;
+  sharesCount = 0;
+  auth        = 0;
+
+  while(context >= 0)
+  {
+    err = xfreeway_enumerate(0, freeway_TYPE_DISC, 128, oName, 128, desc, context,
+                             auth, &oSize, &dSize, &ip_addr, &context);
+
+    if (err != NULL)  break;
+
+    if (context >= 0)
+    {
+      if (MDCfg->network.shareHideLocal != 0 ||
+          (MDCfg->network.shareHideLocal == 0 && !shareIsLocal(oName)))
+      {
+        sharesCount++;
+
+        sprintf(MD_tmp, "Share::%s", oName);
+
+        if ((desc[0] & sfs_CD) == sfs_CD)
+          FileCore_AddTBIcon("md_sharecd",   "file_f9d", MD_tmp, "Share:", 0);
+
+        else if ((desc[0] & sfs_PROT) == sfs_PROT)
+          FileCore_AddTBIcon("md_shareprot", "file_f9e", MD_tmp, "Share:", 0);
+
+        else if ((desc[0] & sfs_RO)   == sfs_RO)
+          FileCore_AddTBIcon("md_sharero",   "file_fb4", MD_tmp, "Share:", 0);
+
+        else
+          FileCore_AddTBIcon("md_share",     "file_f9f", MD_tmp, "Share:", 0);
+      }
+    }
+  }
+
+  /* No shares found, so just put a default icon in the menu. */
+  if (sharesCount == 0)
+    FileCore_AddTBIcon("md_share", "discs", "Show shares", "Share:", 1);
+
+  ToolBar_AddGap();
+
+
+  return;
+}
+
+
+

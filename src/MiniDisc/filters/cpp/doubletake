@@ -1,0 +1,192 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/filters/doubletake.cpp,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/09/14 11:58:07 $
+
+   'DoubleTake' filter - catches 'long' second clicks and fakes a shift.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Time.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MD_DoubleTake_Filter
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MD_DoubleTake_Filter (event_pollblock *event, void *reference)
+{
+  int               r1out,
+                    time,
+                    buttons,
+                    i;
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *err;
+  message_block     mblock;
+
+
+  db->disabled();
+  db->fn_begin();
+
+  if (MDCfg->filters.doubleTake != 0)  // Filter disabled
+  {
+    db->fn_end();
+    return FALSE;
+  }
+
+  OS_Byte(osbyte_SCANFORKEY, 0x0ff, 0x0ff, &r1out, NULL);
+
+  if (r1out == 0x0ff)  // No key pressed, so ignore it.
+  {
+    db->fn_end();
+    return FALSE;
+  }
+
+  time = Time_Monotonic();
+
+  wait:
+
+  err = _kernel_swi (SWI_OS_Mouse | SWI_XOS_Bit, &regs, &regs);
+
+  buttons = regs.r[2];
+
+  if (buttons == 0 || err != NULL)  // No button pressed, or failed to read mouse state, so ignore it.
+  {
+    db->fn_end();
+    return FALSE;
+  }
+
+  if (Time_Monotonic() - time < 20)  goto wait;
+
+  // button still pressed here, after our allotted wait time.
+
+  // Send an acknowledgement.
+  event->data.message.header.yourref = event->data.message.header.myref;
+  Wimp_SendMessage (event_ACK, &event->data.message, event->data.message.header.sender, 0);
+
+
+  if (event->data.message.data.dataopen.filetype < 0x01000)  // FILE selected
+  {
+    db->trace(1, "(Shift-load a file)");
+
+    event->data.message.header.sender          = 0;
+    event->data.message.header.myref           = 0;
+    event->data.message.header.yourref         = 0;
+    event->data.message.data.dataload.filetype = 0x0fff;
+
+    Wimp_SendMessage (event_SEND, &event->data.message, event->data.message.header.sender, 0);
+  }
+
+
+  else  // DIRECTORY selected
+  {
+    db->trace(1, "(Shift-open a directory)");
+
+    regs.r[0] = 13;
+    regs.r[1] = (int) event->data.message.data.dataopen.filename;
+    regs.r[2] = 0;
+    (void) _kernel_swi (0x029 | SWI_XOS_Bit, &regs, &regs);  // Get the current filing system number.
+
+    // Adjust held down?
+    if (buttons == 1)
+    {
+      db->trace(1, "  -- Close the parent window as well. ");  // ... then close the parent window
+
+      mblock.header.size    = sizeof(message_block);
+      mblock.header.sender  = 0;
+      mblock.header.myref   = 0;
+      mblock.header.yourref = 0;
+      mblock.header.action  = (message_action) 0x0401;     // Filer_CloseDir
+      mblock.data.words[0]  = regs.r[1];                   // filing system number
+      mblock.data.words[1]  = 0;                           // flag
+
+      strcpy(mblock.data.bytes + 8, event->data.message.data.dataopen.filename);
+
+      for (i = strlen(event->data.message.data.dataopen.filename); i > 0; i--)
+      {
+        if (event->data.message.data.dataopen.filename[i] == '.')
+        {
+          mblock.data.bytes[i + 8] = 0;
+          break;
+        }
+      }
+
+      if (event->data.message.data.dataopen.filename[i - 1] != '$')
+      {
+        db->tracef(1, "closing %s", mblock.data.bytes + 8);
+
+        Wimp_SendMessage (event_SEND, &mblock, 0, 0);
+      }
+    }
+
+    mblock.header.size    = sizeof(mblock);
+    mblock.header.sender  = 0;
+    mblock.header.myref   = 0;
+    mblock.header.yourref = 0;
+    mblock.header.action  = (message_action) 0x0400;     // Filer_OpenDir
+    mblock.data.words[0]  = regs.r[1];  // filing system number
+    mblock.data.words[1]  = 0;          // flag
+
+    strcpy(mblock.data.bytes + 8, event->data.message.data.dataopen.filename);
+
+    Wimp_SendMessage (event_SEND, &mblock, 0, 0);
+  }
+
+  UNUSED(reference);
+
+  db->fn_end();
+  db->enabled();
+
+
+  return TRUE;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: doubletake.cpp,v $
+   Revision 1.2  2003/09/14 11:58:07  jtemple
+   Code & comments tidied.
+   Debugging code enhanced.
+   Bugfix to stop callback from doing anything unless we've
+   flagged that the Ctrl button was pressed.
+
+
+--------------------------------------------------------------------------------
+*/
+
+
+

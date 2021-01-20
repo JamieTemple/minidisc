@@ -1,0 +1,327 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/path.c                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "scsetup/path.h"
+#include "scsetup/core.h"
+#include "scsetup/event.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:File.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Mem.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_OP3_SetIcons                                             *
+ * Purpose   : Update icons in the 'Directory path' dialog.                    *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 24/11/1999 - Update - Now uses generic leaf name code.          *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_OP3_SetIcons(window_handle window, char *filename)
+{
+  int i = strlen(filename);
+
+
+  db_fn_begin();
+
+  if (!File_IsDirectory(filename))  /* Find parent directory of file */
+  {
+    for (; filename[i] != '.' && filename[i] != ':'; i--);
+
+    filename[i] = 0; /* Dump filename */
+  }
+
+  Icon_SetText (window, SD_path_pathname, filename);
+  Icon_SetText (window, SD_path_label,    SCEdit_FindLeafName(filename));
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCOP3_DataLoad                                                  *
+ * Purpose   : Process files dragged to the 'Directory path' dialog.           *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 07/11/1999 - Update - Now uses standard icon update code.       *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCOP3_DataLoad (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  SCEdit_OP3_SetIcons (event->data.message.data.dataload.window,
+                       event->data.message.data.dataload.filename);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_AddPath                                                  *
+ * Purpose   : Add an icon for a directory path to the shortcuts builder       *
+ *             window.                                                         *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 22/06/2002 - Update - Now uses standard 'small_dir' sprite.     *
+ * V1.1.0    : 05/12/1999 - Recode - Now uses DeskLib 'Mem' functions.         *
+ * V1.0.2    : 03/12/1999 - Update - Now uses MiniDisc path sprite.            *
+ * V1.0.1    : 11/11/1999 - Update - Now returns icon width.                   *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_AddPath(int x, int yPos, shortcuts_menu *item)
+{
+  icon_createblock *icondata;
+  icon_handle       icon = NULL;
+  int               bufflen;
+
+
+  db_fn_begin();
+
+  icondata = malloc(sizeof(icon_createblock));
+
+  icondata->window                             = scwin_main;
+  icondata->icondata.flags.value               = menuIconFlags;
+  bufflen                                      = strlen(item->shortcut.path.label) + 1;
+  icondata->icondata.data.indirecttext.bufflen = bufflen;
+
+  icondata->icondata.data.indirecttext.buffer      = malloc (bufflen);
+  icondata->icondata.data.indirecttext.validstring = malloc (11);
+  strcpy             (icondata->icondata.data.indirecttext.buffer, item->shortcut.path.label);
+  strcpy             (icondata->icondata.data.indirecttext.validstring, "ssmall_dir");
+  icondata->icondata.workarearect.min.x = 32;
+  icondata->icondata.workarearect.min.y = -yPos - menuIconHeight;
+  icondata->icondata.workarearect.max.x = x + 80;
+  icondata->icondata.workarearect.max.y = -yPos;
+  Wimp_CreateIcon (icondata, &icon);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCOK3                                                           *
+ * Purpose   : 'OK' clicked in 'Directory path' dialog.                        *
+ * Status    : Implementation (V1.0.5)                                         *
+ * V1.0.5    : 26/05/2001 - Bugfix - Memory freeing code fixed.                *
+ * V1.0.4    : 30/09/2000 - Update - Dynamic memory reallocation rewrite.      *
+ * V1.0.3    : 14/02/2000 - Update - Added 'allow in apps' & 'suppress !' opts.*
+ * V1.0.2    : 13/02/2000 - Update - Added 'events' support.                   *
+ * V1.0.1    : 11/12/1999 - Update - Now supports 'rule-off'.                  *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCOK3(dialog2_block *aDialog)
+{
+  shortcuts_menu *aShortcut;
+  mouse_block     ptr;
+
+
+  db_fn_begin();
+
+  /* Close the event handler dialog if it's open */
+  Wimp_GetPointerInfo(&ptr);
+  if (!ptr.button.data.adjust)  eventsDialog_Dispose();
+  if (aDialog->reference != NULL)  aShortcut = (shortcuts_menu *)aDialog->reference;
+  else                             aShortcut = SCEdit_FindNewShortcut (NULL, NULL);
+
+  aShortcut->entry                     = path;
+  aShortcut->ruledOff                  = Icon_GetSelect(aDialog->window, SD_path_ruleoff);
+  aShortcut->shortcut.path.allowInApps = Icon_GetSelect(aDialog->window, SD_path_InApps);
+  aShortcut->shortcut.path.hidePling   = Icon_GetSelect(aDialog->window, SD_path_noPling);
+
+  if (aDialog->reference != NULL)
+    free (aShortcut->shortcut.path.label);
+  aShortcut->shortcut.path.label = malloc (strlen(Icon_GetTextPtr(aDialog->window, SD_path_label))+1);
+  strcpy     (aShortcut->shortcut.path.label, Icon_GetTextPtr(aDialog->window, SD_path_label));
+
+  if (aDialog->reference != NULL)
+    free (aShortcut->shortcut.path.pathName);
+  aShortcut->shortcut.path.pathName = malloc (strlen(Icon_GetTextPtr(aDialog->window, SD_path_pathname))+1);
+  strcpy     (aShortcut->shortcut.path.pathName, Icon_GetTextPtr(aDialog->window,SD_path_pathname));
+
+  SCEdit_RefreshWindow ();
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SB_Path_Toggle                                                  *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 13/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SB_Path_Toggle (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  Icon_SetShade (shortcutDialog->window,
+                 SD_path_noPling,
+                 Icon_GetSelect(shortcutDialog->window, SD_path_InApps));
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SB_Path_EWH                                                     *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 13/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SB_Path_EWH (event_pollblock *event, void *reference)
+{
+  BOOL rval;
+
+
+  db_fn_begin();
+
+  if (reference == NULL)
+    rval = SCEdit_EWH (event, SD_path_Edit, SD_path_Attach, SD_path_Cancel, none, NULL);
+  else
+    rval = SCEdit_EWH (event, SD_path_Edit, SD_path_Attach, SD_path_Cancel,
+                       &((shortcuts_menu *)reference)->e_type,
+                       &((shortcuts_menu *)reference)->event.data);
+
+  db_fn_end();
+
+
+  return rval;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCOP3                                                           *
+ * Purpose   : Open the 'Directory path' dialog.                               *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 13/02/2000 - Update - Added 'events' support.                   *
+ * V1.0.2    : 11/12/1999 - Update - Now supports 'rule-off'.                  *
+ * V1.0.1    : 28/11/1999 - Update - No longer uses a temporary array.         *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCOP3(dialog2_block *aDialog)
+{
+  shortcuts_menu *next;
+
+
+  db_fn_begin();
+
+  if (aDialog->reference != NULL)  /* Update */
+  {
+    next = (shortcuts_menu *)aDialog->reference;
+    Icon_SetSelect (aDialog->window, SD_path_ruleoff,  next->ruledOff);
+    Icon_SetShade  (aDialog->window, SD_path_Edit,     next->e_type == none ? 1 : 0);
+    Icon_SetSelect (aDialog->window, SD_path_Attach,   next->e_type == none ? 0 : 1);
+    Icon_SetSelect (aDialog->window, SD_path_InApps,   next->shortcut.path.allowInApps);
+    Icon_SetSelect (aDialog->window, SD_path_noPling,  next->shortcut.path.hidePling);
+    Icon_SetShade  (aDialog->window, SD_path_noPling,  next->shortcut.path.allowInApps ? 1 : 0);
+    Icon_SetText   (aDialog->window, SD_path_label,    next->shortcut.path.label);
+    Icon_SetText   (aDialog->window, SD_path_pathname, next->shortcut.path.pathName);
+  }
+  else                             /* Create */
+  {
+    next = NULL;
+    Icon_Deselect  (aDialog->window, SD_path_ruleoff);
+    Icon_Shade     (aDialog->window, SD_path_Edit);
+    Icon_Deselect  (aDialog->window, SD_path_Attach);
+    Icon_Deselect  (aDialog->window, SD_path_InApps);
+    Icon_Shade     (aDialog->window, SD_path_noPling);
+    Msgs_Lookup    ("shct.path00", Icon_GetTextPtr(aDialog->window,    SD_path_label), 255);
+    Msgs_Lookup    ("shct.path01", Icon_GetTextPtr(aDialog->window, SD_path_pathname), 255);
+  }
+
+  EventMsg_Claim   (message_DATALOAD, aDialog->window, SCOP3_DataLoad, NULL);
+  Event_Claim      (event_CLICK, aDialog->window, SD_path_InApps, SB_Path_Toggle, (void *) next);
+  Event_Claim      (event_CLICK, aDialog->window, SD_path_Cancel, SB_Path_EWH,    (void *) next);
+  Event_Claim      (event_CLICK, aDialog->window, SD_path_Attach, SB_Path_EWH,    (void *) next);
+  Event_Claim      (event_CLICK, aDialog->window, SD_path_Edit,   SB_Path_EWH,    (void *) next);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SB_Path_MainWinDrag (BOOL showDialog, event_pollblock *event)
+{
+  shortcuts_menu *aShortcut;
+  char           *leafpath;
+
+
+  db_fn_begin();
+
+  if (showDialog)
+  {
+    if (shortcutDialog != NULL)  Dialog2_DeleteDialog (shortcutDialog);
+    shortcutDialog = Dialog2_CreateDialogBlock ("spath", SD_path_OK, SD_path_Cancel,
+                                                NULL, SCOK3, NULL);
+    Dialog2_OpenDialogStatic (shortcutDialog, open_CENTEREDUNDERPOINTER);
+    EventMsg_Claim           (message_DATALOAD, shortcutDialog->window, SCOP3_DataLoad, NULL);
+    Icon_Deselect            (shortcutDialog->window, SD_path_ruleoff);
+    SCEdit_OP3_SetIcons      (shortcutDialog->window, event->data.message.data.dataload.filename);
+  }
+  else
+  {
+    aShortcut                            = SCEdit_FindNewShortcut (NULL, NULL);
+    aShortcut->entry                     = path;
+    aShortcut->ruledOff                  = FALSE;
+    aShortcut->e_type                    = none;
+    aShortcut->shortcut.path.allowInApps = TRUE;
+    aShortcut->shortcut.path.hidePling   = FALSE;
+
+    leafpath = SCEdit_FindLeafName (event->data.message.data.dataload.filename);
+
+    aShortcut->shortcut.path.label = malloc (strlen(leafpath)+1);
+    strcpy    (aShortcut->shortcut.path.label, leafpath);
+
+    aShortcut->shortcut.path.pathName = malloc (strlen(event->data.message.data.dataload.filename)+1);
+    strcpy    (aShortcut->shortcut.path.pathName, event->data.message.data.dataload.filename);
+
+    SCEdit_RefreshWindow();
+  }
+
+  db_fn_end();
+
+
+  return;
+}

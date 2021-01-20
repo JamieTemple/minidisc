@@ -1,0 +1,638 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/shortcuts.c,v $
+
+   $Revision: 1.4 $
+   $Date: 2003/10/05 16:01:04 $
+
+   Shortcuts file loading and saving functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include <time.h>
+
+#include "shared/global.h"
+
+#include "DeskLib:File.h"
+#include "DeskLib:Msgs.h"
+
+#ifdef BUILD_MINIDISC
+#include "minidisc/filters/filters.h"
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (External) Global Variables
+--------------------------------------------------------------------------------
+*/
+extern shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts];
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_LoadScCmnd
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void load_ScCmnd(char *stringStart, shortcuts_menu *next)
+{
+  int  j, k;
+
+
+  db_fn_begin();
+
+  next->entry  = command;
+  next->e_type = none;
+
+  for (j = 4; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+
+  if (stringStart[j] == '"')
+  {
+    j++;
+    for (k=j; stringStart[k] != '"'; k++);      /* Menu description ends  */
+  }
+  else for (k=j+1; stringStart[k] != ' '; k++); /* Menu description ends  */
+
+  next->shortcut.command.label = malloc (k - j + 1);
+  strncpy (next->shortcut.command.label, stringStart+j, k - j);
+  next->shortcut.command.label[k - j] = 0;
+
+  for (k++; (stringStart[k] == ' ' || stringStart[k] == 0x09) && stringStart[k] != 0; k++);
+  next->shortcut.command.command = malloc (strlen(stringStart) - k + 1);
+  strcpy (next->shortcut.command.command, stringStart+k);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_LoadScPath
+   Purpose   : Parse a 'path' shortcut menu entry from the shortcuts file.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 16/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void load_ScPath(char *stringStart, shortcuts_menu *next)
+{
+  int  j, k;
+
+
+  db_fn_begin();
+
+  next->entry  = path;
+  next->e_type = none;
+
+  for (j = 4; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+
+  if (stringStart[j] != 0)  /* Not an empty string */
+  {
+    if (stringStart[j] == '"')
+         for (j = j + 1, k = j; stringStart[k] != '"' && stringStart[k] != 0; k++);
+    else for (k = j + 1;        stringStart[k] != ' ' && stringStart[k] != 0x09 &&
+                                stringStart[k] != 0; k++);
+
+    /* Temporarily store the results in the 'label' field. */
+    next->shortcut.path.label = malloc (k - j + 1);
+    strncpy (next->shortcut.path.label, stringStart+j, k - j);
+    next->shortcut.path.label[k - j] = 0;
+
+    /* Skip on to the start of the full file pathname. */
+    if (stringStart[k] != 0)
+      for (k++; (stringStart[k] == ' ' || stringStart[k] == 0x09) && stringStart[k] != 0; k++);
+
+    /* Scan the length of the pathname. */
+    for (j=0; stringStart[k] != ' ' && stringStart[k] != 0x09 && stringStart[k] != 0; j++, k++);
+
+    next->shortcut.path.pathName = malloc (j + 1);
+    strncpy (next->shortcut.path.pathName, stringStart+k-j ,j);
+    next->shortcut.path.pathName[j] = 0;
+
+    if (stringStart[k+1] != 0)
+    {
+      if (strstr(stringStart+k+1, "-NeatApps") != NULL)  next->shortcut.path.allowInApps = FALSE;
+      else                                               next->shortcut.path.allowInApps = TRUE;
+      if (strstr(stringStart+k+1, "-NoPlings") != NULL)  next->shortcut.path.hidePling   = TRUE;
+      else                                               next->shortcut.path.hidePling   = FALSE;
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_LoadScFile
+   Purpose   : Parse a 'file' shortcut menu entry from the shortcuts file.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 15/12/1999 - Preliminary implementation.
+   Notes     :
+   Syntax    : line : file [<description>] <filename>
+ description : "*" | 0-9a-ZA-Z+
+--------------------------------------------------------------------------------
+*/
+void load_ScFile(char *stringStart, shortcuts_menu *next)
+{
+  int  i, j, k;
+
+
+  db_fn_begin();
+
+  next->entry  = file;
+  next->e_type = none;
+
+  for (j = 4; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+
+  if (stringStart[j] != 0)  /* Not an empty string */
+  {
+    if (stringStart[j] == '"')
+         for (j = j + 1, k = j; stringStart[k] != '"' && stringStart[k] != 0; k++);
+    else for (k = j + 1;        stringStart[k] != ' ' && stringStart[k] != 0x09 &&
+                                stringStart[k] != 0; k++);
+
+    /* Temporarily store the results in the 'label' field. */
+    next->shortcut.file.label = malloc (k - j + 1);
+    strncpy (next->shortcut.file.label, stringStart+j, k - j);
+    next->shortcut.file.label[k - j] = 0;
+
+    /* Skip on to the start of the full file pathname. */
+    if (stringStart[k] != 0)
+      for (k++; (stringStart[k] == ' ' || stringStart[k] == 0x09) && stringStart[k] != 0; k++);
+
+    if (k == strlen(stringStart))  /* There was no description, so make one up! */
+    {
+      next->shortcut.file.fileName = malloc (strlen(next->shortcut.file.label) + 1);
+      strcpy (next->shortcut.file.fileName, next->shortcut.file.label);
+
+      for (i = strlen(next->shortcut.file.fileName);
+           next->shortcut.file.fileName[i] != '.' &&
+           next->shortcut.file.fileName[i] != ':'; i--);
+
+      free   (next->shortcut.file.label);
+      next->shortcut.file.label = malloc (strlen(next->shortcut.file.fileName) - i + 1);
+      strcpy (next->shortcut.file.label, next->shortcut.file.fileName + i + 1);
+    }
+    else
+    {
+      next->shortcut.file.fileName = malloc (strlen(stringStart) - k + 1);
+      strcpy (next->shortcut.file.fileName, stringStart + k);
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_LoadScURL
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void load_ScURL(char *stringStart, shortcuts_menu *next)
+{
+  int  j, k;
+
+
+  db_fn_begin();
+
+  next->entry  = url;
+  next->e_type = none;
+
+  for (j = 3; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+
+  if (stringStart[j] != 0)  /* Not an empty url string */
+  {
+
+    if (stringStart[j] == '"')
+         for (j = j + 1, k = j; stringStart[k] != '"' && stringStart[k] != 0; k++);
+    else for (k = j + 1;        stringStart[k] != ' ' && stringStart[k] != 0x09 &&
+                                stringStart[k] != 0; k++);
+
+    next->shortcut.url.label = malloc (k - j + 1);
+    strncpy (next->shortcut.url.label, stringStart+j, k - j);
+    next->shortcut.url.label[k - j] = 0;
+
+    if (stringStart[k] != 0)
+      for (k++; (stringStart[k] == ' ' || stringStart[k] == 0x09) && stringStart[k] != 0; k++);
+
+    if (k == strlen(stringStart))
+    {
+      next->shortcut.url.address = malloc (strlen(next->shortcut.url.label) + 1);
+      strcpy (next->shortcut.url.address, next->shortcut.url.label);
+    }
+    else
+    {
+      next->shortcut.url.address = malloc (strlen(stringStart + k) + 1);
+      strcpy (next->shortcut.url.address, stringStart + k);
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_LoadScMenu
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void load_ScMenu(char *stringStart, shortcuts_menu *next)
+{
+  int  j, k;
+
+
+  db_fn_begin();
+
+  next->entry  = menu;
+  next->e_type = none;
+
+  for (j = 4; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+  if (stringStart[j] == '"')
+  {
+    j++;
+    for (k=j; stringStart[k] != '"'; k++);      /* Menu description ends  */
+  }
+  else for (k=j+1; stringStart[k] != ' '; k++); /* Menu description ends  */
+
+  next->shortcut.menu.label = malloc (k-j+1);
+  strncpy (next->shortcut.menu.label, stringStart+j, k - j);
+  next->shortcut.menu.label[k - j] = 0;
+
+  for (k++; (stringStart[k] == ' ' || stringStart[k] == 0x09) && stringStart[k] != 0; k++);
+
+  next->shortcut.menu.intMenuName = malloc (k + 1);
+  strcpy(next->shortcut.menu.intMenuName, stringStart+k);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_LoadMenu
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL load_Menu (char *stringStart, int *currentMenu, int *menuCount,
+                         shortcuts_menu **current)
+{
+  int   i,
+        j;
+  BOOL  inMenu = FALSE;
+  char  e_typeBuff[10];
+
+
+  /* Only look for 'Menu' items */
+  if (strncmp(stringStart, "Menu", 4) == 0)
+  {
+    /* Skip leading white space */
+    for (i = 4; (stringStart[i] == ' ' || stringStart[i] == 0x09) && stringStart[i] != 0; i++);
+
+    /* Quoted menu name */
+    if (stringStart[i] == '"')
+    {
+      i++;
+      for (j=i; stringStart[j] != '"'; j++);
+    }
+
+    /* Menu name is 1 word */
+    else for (j=i+1; stringStart[j] != ' ' && stringStart[j] != 0x09 && stringStart[j] != 0; j++);
+
+    if (strncmp(stringStart+i, shortcutsArray[0].menuName,
+                strlen(shortcutsArray[0].menuName)) == 0)  /* Main shortcuts menu */
+    {
+      *currentMenu = 0;
+    }
+    else  /* Shortcuts sub-menu */
+    {
+      strncpy(shortcutsArray[*menuCount + 1].menuName, stringStart+i, j - i);
+      shortcutsArray[*menuCount + 1].menuName[j - i] = 0;
+      (*menuCount)++;
+      *currentMenu = *menuCount;
+    }
+
+    if (stringStart[j+1] != 0)
+    {
+      /* Skip white space */
+      for (j++; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+
+      /* Read event handler type. */
+      for (i = 0;
+           stringStart[j] != ' ' && stringStart[j] != 0x09 && stringStart[j] != 0 && i < 10; j++)
+        e_typeBuff[i++] = stringStart[j];
+      e_typeBuff[i]=0;
+
+      /* Keyboard  */
+      if (strcmp(e_typeBuff, "-key") == 0)
+      {
+        shortcutsArray[*currentMenu].e_type = keyboard;
+        /* Skip white space */
+        for (j++; (stringStart[j] == ' ' || stringStart[j] == 0x09) && stringStart[j] != 0; j++);
+
+        /* Read key value. */
+        for (i = 0;
+             stringStart[j] != ' ' && stringStart[j] != 0x09 && stringStart[j] != 0 && i < 10;
+             j++)
+          e_typeBuff[i++] = stringStart[j];
+        e_typeBuff[i]=0;
+        shortcutsArray[*currentMenu].event.keyboard.value = atoi(e_typeBuff);
+
+
+// Only register key press events if loading into MiniDisc, rather than the builder app.
+
+#ifdef BUILD_MINIDISC
+        MDFilters_RegisterKey(shortcutsArray[*currentMenu].event.keyboard.value, 0, NULL);
+#endif
+
+
+      }
+      else if (strcmp(e_typeBuff, "-wimp") == 0)
+      {
+        shortcutsArray[*currentMenu].e_type = wimp;
+      }
+      else  shortcutsArray[*currentMenu].e_type = none;
+    }
+
+    *current = NULL;
+    inMenu   = TRUE;
+  }
+
+
+  return inMenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Save
+   Purpose   : Write shortcuts to file.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 18/05/2001 - Update - Now displays correct save time details.
+   V1.0.1    : 03/01/2000 - Update - Now uses messages file.
+   V1.0.0    : 16/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_Save (char *filename)
+{
+  shortcuts_menu  *aPtr;
+  file_handle      aFile;
+  char             writeBuffer[buffer_size];
+  char             formatBuffer[buffer_size];
+  int              i;
+  time_t           aTime;
+
+
+  if ((aFile = File_Open(filename, file_WRITE)) != NULL)
+  {
+    MDTrace(1, "Writing shortcuts...");
+    /* Top bits go here */
+    Msgs_printf     (formatBuffer, "shct.fdefstrt");
+    sprintf         (writeBuffer, "# %s\n", formatBuffer);
+    File_WriteBytes (aFile, (void *)writeBuffer, strlen(writeBuffer));
+    time(&aTime);
+    Msgs_printf     (formatBuffer, "shct.fdefsave", ctime(&aTime));
+    sprintf         (writeBuffer, "# %s\n", formatBuffer);
+    File_WriteBytes (aFile, (void *)writeBuffer, strlen(writeBuffer));
+
+
+    for (i = 0; i < maximumNumberOfShortcuts; i++)
+    {
+      MDTrace(1, "Writing a shortcut");
+      if (shortcutsArray[i].menuName[0] != 0)
+      {
+        /* pre-menu bits go here */
+        sprintf(writeBuffer, "\nMenu \"%s\"", shortcutsArray[i].menuName);
+        switch(shortcutsArray[i].e_type)
+        {
+          case none:
+            strcat(writeBuffer, "\n");
+            break;
+
+          case keyboard:
+            sprintf(formatBuffer, " -key %4d\n", shortcutsArray[i].event.keyboard.value);
+            strcat(writeBuffer, formatBuffer);
+            break;
+
+          case wimp:
+            strcat(writeBuffer, "\n");  /* TEMPORARY! */
+            break;
+        }
+        File_WriteBytes(aFile, (void *)writeBuffer, strlen(writeBuffer));
+
+
+        /* (loop along shortcuts menu */
+        for (aPtr = shortcutsArray[i].first; aPtr != NULL; aPtr = aPtr->next)
+        {
+          switch (aPtr->entry)
+          {
+            case file:
+              sprintf(writeBuffer, "  file\t\"%s\"\t%s\n", aPtr->shortcut.file.label,
+                      aPtr->shortcut.file.fileName);
+              break;
+
+            case url:
+              sprintf(writeBuffer, "  url \t\"%s\"\t%s\n", aPtr->shortcut.url.label,
+                      aPtr->shortcut.url.address);
+              break;
+
+            case path:
+              sprintf (writeBuffer, "  path\t\"%s\"\t%s", aPtr->shortcut.path.label,
+                       aPtr->shortcut.path.pathName);
+              if (!(aPtr->shortcut.path.allowInApps))
+              {
+                strcat (writeBuffer, " -NeatApps");
+                if (aPtr->shortcut.path.hidePling) strcat (writeBuffer, " -NoPlings");
+              }
+              strcat(writeBuffer, "\n");
+              break;
+
+            case menu:
+              sprintf(writeBuffer, "  menu\t\"%s\"\t%s\n", aPtr->shortcut.menu.label,
+                      aPtr->shortcut.menu.intMenuName);
+              break;
+
+            case command:
+              sprintf(writeBuffer, "  cmnd\t\"%s\"\t%s\n", aPtr->shortcut.command.label,
+                      aPtr->shortcut.command.command);
+              break;
+
+            default:
+              Msgs_printf (formatBuffer, "shct.fdefunkn");
+              sprintf     (writeBuffer, "# %s\n", formatBuffer);
+              break;
+          }
+          File_WriteBytes(aFile, (void *)writeBuffer, strlen(writeBuffer));
+
+
+          if (aPtr->ruledOff)
+          {
+            sprintf(writeBuffer, "Dash\n");
+            File_WriteBytes(aFile, (void *)writeBuffer, strlen(writeBuffer));
+          }
+        }
+
+
+        /* post-menu bits go here */
+        sprintf(writeBuffer, "EndMenu\n");
+        File_WriteBytes(aFile, (void *)writeBuffer, strlen(writeBuffer));
+      }
+    }
+
+
+    /* Trailer bits go here */
+    Msgs_printf     (formatBuffer, "shct.fdefend");
+    sprintf         (writeBuffer, "\n# %s\n", formatBuffer);
+    File_WriteBytes (aFile, (void *)writeBuffer, strlen(writeBuffer));
+    File_Close      (aFile);
+    File_SetType    (filename, filetype_TEXT);
+  }
+  else
+  {
+    MDTrace(1, "Failed to write shortcuts file '%s'", filename);
+    ;
+  }
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Load
+   Purpose   : Load shortcuts into a menu tree structure.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/01/2000 - Preliminary implementation.
+   Notes     : In fact, all menus are simple linked-lists, referred to via an
+               array of pointers to indexed menus.
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_Load (char *filename)
+{
+  shortcuts_menu  *next        = NULL;   /* Address of next item pointer */
+  shortcuts_menu  *current     = NULL;   /* current item pointer         */
+  file_handle      aFile;
+  BOOL             inMenu      = FALSE;
+  int              i           = 0,
+                   menuCount   = 0,
+                   currentMenu = 0;
+  char             bigString[256];
+  char            *stringStart;
+
+
+  db_fn_begin();
+
+  if ((aFile = File_Open(filename, file_READ)) != NULL)
+  {
+    while (!File_EOF(aFile))
+    {
+      for (i = 0; (bigString[i] = File_Read8(aFile)) != 10; i++);  /* Read a line from file     */
+      bigString[i] = 0;                                            /* Terminate input buffer    */
+      if (strlen(bigString) == 0) continue;                        /* Skip blank lines          */
+      for (i = 0; bigString[i] == ' '; i++);                       /* Skip leading white space  */
+      stringStart = bigString+i;                                   /* Flag start of line        */
+      if (stringStart[0] == '#')  continue;                        /* Skip comment lines        */
+
+      /* ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ */
+      if (!inMenu)  inMenu = load_Menu(stringStart, &currentMenu, &menuCount, &current);
+
+      /* ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ */
+      else
+      {
+        /* Look for items and 'EndMenu' */
+             if (strncmp(stringStart, "EndMenu", 6) == 0) inMenu            = FALSE;
+        else if (strncmp(stringStart, "Dash",    4) == 0) current->ruledOff = TRUE;
+        else
+        {
+          if (current == NULL)
+          {
+            shortcutsArray[currentMenu].first = malloc (sizeof(shortcuts_menu));
+            next = shortcutsArray[currentMenu].first;
+          }
+          else
+          {
+            current->next = malloc (sizeof(shortcuts_menu));
+            next = current->next;
+          }
+
+               if (strncmp(stringStart, "file", 4) == 0)  load_ScFile(stringStart, next);
+          else if (strncmp(stringStart, "url",  3) == 0)  load_ScURL (stringStart, next);
+          else if (strncmp(stringStart, "menu", 4) == 0)  load_ScMenu(stringStart, next);
+          else if (strncmp(stringStart, "path", 4) == 0)  load_ScPath(stringStart, next);
+          else if (strncmp(stringStart, "cmnd", 4) == 0)  load_ScCmnd(stringStart, next);
+          else i = i;  /* Unknown shortcut type, so do something about it here. */
+
+          next->ruledOff = FALSE;
+          next->next     = NULL;
+          current        = next;
+          next           = next->next;
+        }
+      }
+    }
+
+    File_Close (aFile);
+  }
+  else
+  {
+    db_tracef(1, "Failed to read shortcuts file '%s'", filename);
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: shortcuts.c,v $
+   Revision 1.4  2003/10/05 16:01:04  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+

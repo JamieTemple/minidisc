@@ -1,0 +1,123 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/shortcuts/url.c                                        *
+ * Purpose   : 'URL' shortcuts specific code.                                  *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/shortcuts/command.h"
+#include "minidisc/shortcuts/shortcuts.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/toolbar.h"
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Url.h"
+
+
+void Shortcut_URLAddTBIcon (url_info *scut, int index, char *menuName)
+{
+  int button;
+
+
+  if (strncmp(scut->address, "mailto:", 7) == 0)
+    button = ToolBar_AddIcon2("md!mailto", "email", 0, "md!mailto", scut->label,
+                              (tb_proc) Shortcuts_TBHandler);
+  else
+    button = ToolBar_AddIcon2("small_faf", "www", 0, "file_faf", scut->label,
+                              (tb_proc) Shortcuts_TBHandler);
+
+  tbButtons[button].device = index;
+  strcpy(tbButtons[button].interface, menuName);
+}
+
+
+void Shortcut_URLDispose (shortcuts_menu **item)
+{
+  free ((*item)->shortcut.url.label);
+  free ((*item)->shortcut.url.address);
+}
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_URLAction                                             *
+ * Purpose   : Fire a url at a browser via AcornURI.                           *
+ * Status    : Implementation (V2.0.0)                                         *
+ * V2.0.0    : 08/09/2002 - Recode - Now uses generic URL dispatching code.    *
+ * V1.0.0    : 11/07/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_URLAction(shortcuts_menu *current, event_pollblock *event, int callType)
+{
+  db->fn_begin();
+
+  Url_Launch (current->shortcut.url.address, NULL, NULL);
+
+  db->tracef (1, "url : %s",  current->shortcut.url.address);
+
+  UNUSED(event);
+  UNUSED(callType);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_AddURL                                                *
+ * Purpose   : Add a URL to the shortcuts menu.                                *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 28/05/2001 - Update - Added 'mailto:' sprite support.           *
+ * V1.0.2    : 11/12/1999 - Update - Now supports rule-offs.                   *
+ * V1.0.1    : 06/11/1999 - Update - Now uses 'label' in icons.                *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_AddURL(menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry)
+{
+  menu_item *menuItem;
+  int        buffSize;
+
+
+  menuItem                  = MenuGet_Item(aMenu, entryNumber);
+  menuItem->iconflags.value = 0x7000113;
+  buffSize                  = strlen(menuEntry->shortcut.url.label);
+  menuItem->icondata.indirecttext.buffer = malloc(buffSize+1);
+  strcpy(menuItem->icondata.indirecttext.buffer, menuEntry->shortcut.url.label);
+  menuItem->icondata.indirecttext.bufflen = buffSize;
+
+  menuItem->icondata.indirecttext.validstring = malloc(12);
+
+  if (strncmp(menuEntry->shortcut.url.address, "mailto:", 7) == 0)
+    strcpy(menuItem->icondata.indirecttext.validstring, "smd!mailto");
+  else
+    strcpy(menuItem->icondata.indirecttext.validstring, "ssmall_faf");
+
+  menuItem->menuflags.data.ticked     = 0;
+  menuItem->menuflags.data.shaded     = 0;
+  menuItem->menuflags.data.openshaded = 0;
+  menuItem->menuflags.data.writable   = 0;
+  menuItem->menuflags.data.dotted     = menuEntry->ruledOff;
+  menuItem->menuflags.data.notifysub  = 0;
+  menuItem->submenu.value             = -1;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+

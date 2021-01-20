@@ -1,0 +1,144 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/modules/scsifs.c,v $
+
+   $Revision: 1.1 $
+   $Date: 2004/04/14 14:44:21 $
+
+   SCSIFS specific code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "minidisc/modules/filecore.h"
+#include "minidisc/modules/idefs.h"
+#include "minidisc/modules/rmfs.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "shared/desklib.h"
+
+#include "minidisc/core/sharedlg.h"
+#include "minidisc/core/hideicons.h"
+#include "minidisc/core/toolbar.h"
+#include "minidisc/core/oslib-menu.h"
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "oslib/filecore.h"
+#include "oslib/fileraction.h"
+#include "oslib/osbyte.h"
+#include "oslib/osmodule.h"
+#include "oslib/osfile.h"
+#include "oslib/osfscontrol.h"
+#include "oslib/osword.h"
+#include "oslib/scsifs.h"
+#include "oslib/territory.h"
+#include "oslib/wimp.h"
+
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : SCSIFS_ListDrives
+   Purpose   : Append SCSI drives on to the main MiniDisc menu
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/02/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *SCSIFS_ListDrives (char *device_name, int hard, int floppy, void *mainmenu)
+{
+  int       i;
+  char      filePath[12],
+            discName[27];
+
+
+  db_fn_begin();
+
+  db_tracef(100, "Displaying SCSI drives in main MD menu");
+
+  for (i = 0; i < 8; i++)
+  {
+    switch (scsifs_test_ready(i))
+    {
+      case scsifs_DRIVE_READY:
+        sprintf(filePath, "SCSI::%d.$", i);
+        discName[0] = 0;
+        if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+        {
+          DriveMenuSize++;
+          discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+          mainmenu = FileCore_MenuExtend(mainmenu, discName, "smd_hd", "SCSI:", i);
+          proceduresInfo[DriveMenuSize].proc_ptr = FileCore_Actions;
+          proceduresInfo[DriveMenuSize].drivenum = i;
+          strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "SCSI:");
+        }
+        break;
+
+      case scsifs_DRIVE_UNREADY:
+      case scsifs_DRIVE_ABSENT:
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : SCSIFS_AddTBIcons
+   Purpose   : Add SCSI drives to the MiniDisc toolbar
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 13/03/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void SCSIFS_AddTBIcons (void)
+{
+  int       i;
+  char      filePath[12],
+            discName[27];
+
+
+  db_fn_begin();
+
+  db_tracef(100, "Adding SCSI drives to MD toolbar");
+
+  for (i = 0; i < 8; i++)
+  {
+    switch (scsifs_test_ready(i))
+    {
+      case scsifs_DRIVE_READY:
+        sprintf(filePath, "SCSI::%d.$", i);
+        discName[0] = 0;
+        if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+          FileCore_AddTBIcon("md_hd", "harddisc", discName, "SCSI:", i);
+        break;
+
+      case scsifs_DRIVE_UNREADY:
+      case scsifs_DRIVE_ABSENT:
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}

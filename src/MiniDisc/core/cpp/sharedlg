@@ -1,0 +1,264 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/sharedlg.cpp,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:12 $
+
+   Access share dialog box handling code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:Wimp.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macros
+--------------------------------------------------------------------------------
+*/
+#define SDwin_path     8
+#define SDwin_label    3
+#define SDwin_passw    2
+#define SDwin_pass0    4
+#define SDwin_pass1   13
+#define SDwin_prot     6
+#define SDwin_ro       7
+#define SDwin_cdrom   10
+#define SDwin_cancel   5
+#define SDwin_unshare 12
+#define SDwin_share   16
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global variables
+--------------------------------------------------------------------------------
+*/
+static window_handle share_dialog = NULL;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : SD_Clicks
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL SD_Clicks (event_pollblock *event, void *reference)
+{
+  switch (event->data.mouse.icon)
+  {
+    case SDwin_passw:  /* Password option */
+      Icon_SetShade (share_dialog, SDwin_pass0, !Icon_GetSelect(share_dialog, SDwin_passw));
+      Icon_SetShade (share_dialog, SDwin_pass1, !Icon_GetSelect(share_dialog, SDwin_passw));
+      break;
+
+    case SDwin_share:  /* Share */
+      sprintf(MD_tmp, "Share %s %s %s %s %s", Icon_GetTextPtr(share_dialog, SDwin_path),
+              Icon_GetTextPtr(share_dialog, SDwin_label),
+              Icon_GetSelect (share_dialog, SDwin_prot)  ? " -protected" : "",
+              Icon_GetSelect (share_dialog, SDwin_ro)    ? " -readonly"  : "",
+              Icon_GetSelect (share_dialog, SDwin_cdrom) ? " -cdrom"     : "");
+      Wimp_StartTask(MD_tmp);
+      Window_Delete (share_dialog);
+      share_dialog = NULL;
+      break;
+
+    case SDwin_cancel:  /* Cancel */
+      Window_Delete (share_dialog);
+      share_dialog = NULL;
+      break;
+
+    case SDwin_unshare:  /* Unshare */
+      sprintf(MD_tmp, "UnShare %s", Icon_GetTextPtr(share_dialog, SDwin_label));
+      Wimp_StartTask(MD_tmp);
+      Window_Delete (share_dialog);
+      share_dialog = NULL;
+      break;
+
+    default:
+      break;
+  }
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ShareDialog
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern void ShareDialog (char *directory, char *name)
+{
+  _kernel_swi_regs  regs;
+  int               alreadyShared;
+
+
+  if (share_dialog != NULL)
+  {
+    Window_Delete (share_dialog);
+    share_dialog = NULL;
+  }
+
+  share_dialog = Window_Create ("share", 0);
+
+  alreadyShared = FALSE;
+  regs.r[0]     = 0;      /* flags   */
+  regs.r[4]     = 0;      /* Context */
+
+  while (regs.r[4] >= 0)
+  {
+    _kernel_swi (0x067ac2, &regs, &regs);  /* Xsharefs_enumerateshares */
+
+    if (regs.r[4] >= 0)  /* Found something interesting... */
+    {
+      if (strcmp(directory, (char *)regs.r[2]) == 0)  /* Matched a path */
+          alreadyShared = TRUE;
+    }
+  }
+
+  if (alreadyShared)
+  {
+    /* Set options buttons according to current share status. */
+    Icon_SetText (share_dialog, SDwin_path,  (char *)regs.r[2]);
+    Icon_SetText (share_dialog, SDwin_label, (char *)regs.r[1]);
+    Icon_Shade   (share_dialog, SDwin_label);
+    Icon_Shade   (share_dialog, SDwin_passw);
+    Icon_Shade   (share_dialog, SDwin_prot);
+    Icon_Shade   (share_dialog, SDwin_ro);
+    Icon_Shade   (share_dialog, SDwin_cdrom);
+    Icon_Shade   (share_dialog, SDwin_share);
+    Icon_Unshade (share_dialog, SDwin_unshare);
+  }
+  else
+  {
+    Icon_SetText (share_dialog, SDwin_path,   directory);
+    Icon_SetText (share_dialog, SDwin_label,  name);
+    Icon_Shade   (share_dialog, SDwin_unshare);
+  }
+
+  Event_Claim (event_CLICK, share_dialog, event_ANY, SD_Clicks, NULL);
+  /* We also need to register a dataload handler here as well. */
+
+  Window_Show(share_dialog, open_UNDERPOINTER);
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : SD_FilerShare
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL SD_FilerShare (event_pollblock *event, void *reference)
+{
+  char              filePath[24];
+  /* WARNING - MD_tmp & long pathnames WILL CRASH!!!! */
+  int               i;
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *err;
+
+
+  regs.r[0] = 37;
+  regs.r[1] = (int) event->data.message.data.bytes + 12;
+  regs.r[2] = (int) MD_tmp;
+  regs.r[3] = 0;
+  regs.r[4] = 0;
+  regs.r[5] = buffer_size;
+
+  err = _kernel_swi (0x020029, &regs, &regs);
+
+  if (err == NULL)
+  {
+    for (i = strlen(MD_tmp); MD_tmp[i] != '.'; i--);
+
+    strcpy(filePath, MD_tmp + i + 1);
+
+    ShareDialog(MD_tmp, filePath);
+  }
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ShareDialog_Initialise
+   Purpose   : Claim Share dialog request messages.                    
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern void ShareDialog_Initialise (void)
+{
+  db->fn_begin();
+
+  EventMsg_Claim ((message_action)0x409, event_ANY, SD_FilerShare, NULL);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: sharedlg.cpp,v $
+   Revision 1.2  2003/10/05 16:00:12  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

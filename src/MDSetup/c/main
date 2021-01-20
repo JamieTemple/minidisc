@@ -1,0 +1,926 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/main.c                                                   *
+ * Purpose   : Main MiniDisc configuration code.                               *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/cdfs.h"
+#include "MDSetup/filecore.h"
+#include "MDSetup/iconbar.h"
+#include "MDSetup/imagefs.h"
+#include "MDSetup/misc.h"
+#include "MDSetup/network.h"
+#include "MDSetup/printer.h"
+#include "MDSetup/psion.h"
+#include "MDSetup/shortcuts.h"
+#include "MDSetup/filters.h"
+#include "MDSetup/toolbar.h"
+#include "MDSetup/smartsave.h"
+#include "MDSetup/trashcan.h"
+
+#include "shared/options.h"
+#include "shared/stdhandlers.h"
+#include "shared/shortcuts.h"
+#include "shared/global.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:File.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Pane2.h"
+#include "DeskLib:Resource.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:WimpSWIs.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:Template.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Global Variables                                                            *
+ * --------------------------------------------------------------------------- */
+shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts];
+app_info             MD__app_info;
+app_info            *d = &MD__app_info;
+
+app_config      tempCfg;
+window_handle   prefswindow,
+                prefspane,
+                prefsp2,
+                prefsp3;
+enum paneType   currentPane;
+enum psionPane  currentPsiPane;
+
+
+BOOL WinToFront(event_pollblock *event, void *reference)
+{
+  Pane2_Show(prefswindow, open_WHEREVER);
+
+
+  return TRUE;
+}
+
+
+menu_ptr Msgs_MenuNew(char *title, char *desc)
+{
+  menu_ptr  aMenu;
+  char      menuText[256],
+            menuTitle[20];
+
+
+  db_fn_begin ();
+
+  Msgs_Lookup (desc,  menuText, 255);
+  Msgs_Lookup (title, menuTitle, 19);
+
+  aMenu = Menu_New (menuTitle, menuText);
+
+  db_fn_end ();
+
+
+  return aMenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_Store                                                *
+ * Purpose   : Record options from panes before closing them.                  *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 13/03/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OptionPane_Store (void)
+{
+  db_fn_begin();
+
+  switch(currentPane)
+  {
+    case iconbar:    OWClose_Iconbar();    break;
+    case misc:       OWClose_Misc();       break;
+    case filecore:   OWClose_FileCore();   break;
+    case image:      OWClose_ImageFS();    break;
+    case cdfs:       OWClose_CDFS();       break;
+    case psion:      OWStore_Psion();      break; /* Store, NOT close */
+    case printer:    OWClose_Printer();    break;
+    case shortcut:   OWClose_Shortcut();   break;
+    case network:    OWClose_Network();    break;
+    case filters:    OWStore_Filter();     break; /* Store, NOT close */
+    case toolbar:    OWClose_Toolbar();    break;
+    case smartsave:  OWStore_SmartSave();  break; /* Store, NOT close */
+    case trashcan:   OWClose_TrashCan();   break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_Close                                                *
+ * Purpose   : Record options from panes before closing them.                  *
+ * Status    : Implementation (V1.1.2)                                         *
+ * V1.1.2    : 16/08/2000 - Update - Added filters support.                    *
+ * V1.1.1    : 05/01/2000 - Update - Added miscelaneous pane support.          *
+ * V1.1.0    : 18/09/1999 - Now just a dispatching routine.                    *
+ * V1.0.1    : 11/09/1999 - Added iconbar icon & printer options               *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OptionPane_Close (void)
+{
+  db_fn_begin();
+
+  switch(currentPane)
+  {
+    case iconbar:    OWClose_Iconbar();    break;
+    case misc:       OWClose_Misc();       break;
+    case filecore:   OWClose_FileCore();   break;
+    case image:      OWClose_ImageFS();    break;
+    case cdfs:       OWClose_CDFS();       break;
+    case psion:      OWClose_Psion();      break;
+    case printer:    OWClose_Printer();    break;
+    case shortcut:   OWClose_Shortcut();   break;
+    case network:    OWClose_Network();    break;
+    case filters:    OWClose_Filter();     break;
+    case toolbar:    OWClose_Toolbar();    break;
+    case smartsave:  OWClose_SmartSave();  break;
+    case trashcan:   OWClose_TrashCan();   break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_Menu                                                 *
+ * Purpose   : Process clicks in menus in the configuration window panes.      *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 05/08/2000 - Update - Added support for the 'Copy/move a        *
+ *                                   shortcut' icon.                           *
+ * V1.0.3    : 30/10/1999 - Update - Now includes shortcuts windows support.   *
+ * V1.0.2    : 14/09/1999 - Recode - Was getting rather large, so now simply   *
+ *                                   dispatches to the specific menu handlers. *
+ * V1.0.1    : 11/09/1999 - Update - Added Iconbar icon appearance handlers.   *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_Menu (event_pollblock *event, void *reference)
+{
+  menu_ptr     menu = (menu_ptr)(((int)reference) >> 4);
+  int          icon = ((int)reference) & 0x0f;
+  mouse_block  ptr;
+  BOOL         adjust = NULL;
+
+
+  db_fn_begin();
+
+  switch (icon)
+  {
+    case 0:  /* Auto-boot option */
+      adjust = OPMenu_Misc_boot                (event, menu);
+      break;
+
+    case 1:  /* Psion driver option */
+      adjust = OptionPane_MenuPsionDriver      (event, menu);
+      break;
+
+    case 2:  /* Iconbar appearance option */
+      adjust = OptionPane_MenuIconType         (event, menu);
+      break;
+
+    case 3:   /* Iconbar 'Select' action handler. */
+    case 4:   /* Iconbar 'Adjust' action handler. */
+      adjust = OptionPane_MenuActionType       (event, menu, icon);
+      break;
+
+    case 5:   /* Shortcuts menu position handler. */
+      adjust = OptionPane_MenuShortcutsPos     (event, menu);
+      break;
+
+    case 6:  /* 'Select' on iconbar shortcuts menu selection */
+    case 7:  /* 'Adjust' on iconbar shortcuts menu selection */
+      adjust = OptionPane_MenuShortcutsMenu    (event, menu, icon);
+      break;
+
+    case 8:  /* Which Shortcuts menu appears in the toolbar */
+      adjust = OPMenu_Toolbar_fromMenu         (event, menu);
+      break;
+
+    case 9:  /* Iconbar drag-to create shortcut in menu handler */
+      adjust = OPMenu_Iconbar_AddShortcut      (event, menu);
+      break;
+
+    case 10: /* Iconbar : Files dragged action */
+      adjust = OPMenu_Iconbar_fdrag            (event, menu);
+      break;
+
+    case 11:  /* Iconbar drag-to delete options menu handler */
+      adjust = OPMenu_Iconbar_DelOpts          (event, menu);
+      break;
+
+    case 12:  /* Shortcuts menu on pinboard clicks */
+      adjust = OptionPane_MenuShortcutsPinMenu (event, menu);
+      break;
+
+    case 13:  /* SmartSave file-type selection menu handler */
+      adjust = OPMenu_SmartSave                (event, menu);
+      break;
+
+    default:  /* /Should/ never happen! */
+      Wimp_GetPointerInfo (&ptr);
+      if (ptr.button.data.adjust) Menu_ShowLast ();
+      else                        adjust = TRUE;
+      break;
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_Click                                                *
+ * Purpose   : Process clicks upon buttons in the options pane.                *
+ * Status    : Implementation (V1.1.3)                                         *
+ * V1.1.3    : 16/08/2000 - Update - Added filters support.                    *
+ * V1.1.2    : 19/02/2000 - Update - Added CDFS pane support.                  *
+ * V1.1.1    : 05/01/2000 - Update - Added miscelaneous pane support.          *
+ * V1.1.0    : 18/09/1999 - Update - Turned into a dispatching routine.        *
+ * V1.0.1    : 14/09/1999 - Update - Added /propper/ Select/Adjust action type *
+ *                                   handler.                                  *
+ * V1.0.0    : 11/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_Click (event_pollblock *event, void *reference)
+{
+  switch((int) reference)
+  {
+    case iconbar:   OptionPane_ClickIconbar   (event, reference);  break;
+    case misc:      OptionPane_ClickMisc      (event, reference);  break;
+    case cdfs:      OptionPane_ClickCDFS      (event, reference);  break;
+    case psion:     OptionPane_ClickPsion     (event, reference);  break;
+    case shortcut:  OptionPane_ClickShortcut  (event, reference);  break;
+    case filters:   OptionPane_ClickFilter    (event, reference);  break;
+    case toolbar:   OptionPane_ClickToolbar   (event, reference);  break;
+    case smartsave: OptionPane_ClickSmartSave (event, reference);  break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_Drag                                                 *
+ * Purpose   : Process messages when files are dragged to the options panes.   *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 19/02/2000 - Update - Added CDFS support.                       *
+ * V1.0.3    : 08/01/2000 - Update - Added 'files dragged to iconbar' handler. *
+ * V1.0.2    : 05/01/2000 - Update - Added miscelaneous pane support.          *
+ * V1.0.1    : 26/09/1999 - Update - Preliminary support for drags to          *
+ *                                   Select/Adjust actions fields.             *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_Drag (event_pollblock *event, void *reference)
+{
+  int i,
+      action_modifiers = CalcActionModifiers();
+
+
+  switch ((int)reference)
+  {
+    case iconbar:  /* Process drags to 'Iconbar' options pane */
+      switch (event->data.message.data.dataload.icon)
+      {
+        case OW_icn_SELECT:
+          switch(tempCfg.iconbar.selectType[action_modifiers])
+          {
+            case 1:  /* Open file / dir / !App */
+            case 3:  /* Directory menu         */
+              Icon_SetText(prefspane, OW_icn_SELECT, event->data.message.data.dataload.filename);
+              break;
+
+            default: /* Everything else! */
+              break;
+          }
+          break;
+
+        case OW_icn_ADJUST:
+          switch(tempCfg.iconbar.adjustType[action_modifiers])
+          {
+            case 1:  /* Open file / dir / !App */
+            case 3:  /* Directory menu         */
+              Icon_SetText(prefspane, OW_icn_ADJUST, event->data.message.data.dataload.filename);
+              break;
+
+            default:
+              break;
+          }
+          break;
+
+        case OW_icn_FDRAGL:
+          if (File_IsDirectory(event->data.message.data.dataload.filename))
+            Icon_SetText(prefspane, OW_icn_FDRAGL, event->data.message.data.dataload.filename);
+          else
+          {
+            for (i = strlen(event->data.message.data.dataload.filename);
+                 event->data.message.data.dataload.filename[i] != '.'; i--);
+
+            event->data.message.data.dataload.filename[i] =0;
+
+            Icon_SetText(prefspane, OW_icn_FDRAGL, event->data.message.data.dataload.filename);
+          }
+          break;
+      }
+      break;
+
+    case misc:  /* Process drags to 'Miscelaneous' options pane */
+      switch (event->data.message.data.dataload.icon)
+      {
+        case OW_msc_START:
+          Icon_SetText(prefspane, OW_msc_START, event->data.message.data.dataload.filename);
+          break;
+        case OW_msc_QUIT:
+          Icon_SetText(prefspane, OW_msc_QUIT,  event->data.message.data.dataload.filename);
+          break;
+      }
+      break;
+
+    case cdfs:  /* Process drags to the CDFS options pane */
+      Icon_SetText (prefspane, OW_cdf_PLAYER, event->data.message.data.dataload.filename);
+      free (tempCfg.cdfs.playerPath);
+      tempCfg.cdfs.playerPath = malloc (strlen(event->data.message.data.dataload.filename) + 1);
+      strcpy       (tempCfg.cdfs.playerPath, event->data.message.data.dataload.filename);
+      Icon_Select  (prefspane, OW_cdf_USEEXT);
+      break;
+
+    case smartsave:
+      if (event->data.message.data.dataload.icon == OW_sms_FILEPATH)
+      {
+        if (!File_IsDirectory(event->data.message.data.dataload.filename))
+        {
+          for (i = strlen(event->data.message.data.dataload.filename);
+               event->data.message.data.dataload.filename[i] != '.'; i--);
+            event->data.message.data.dataload.filename[i] = 0;
+        }
+        Icon_SetText  (prefspane, OW_sms_FILEPATH, event->data.message.data.dataload.filename);
+        Icon_SetCaret (prefspane, OW_sms_FILEPATH);
+      }
+      else if (event->data.message.data.dataload.icon == OW_sms_SPRITE)
+      {
+        if (event->data.message.data.dataload.filetype  < 4096 ||
+            event->data.message.data.dataload.filetype == 0xffffffff)  /* Not a directory */
+        {
+          SmartSave_SetEditIcon(event->data.message.data.dataload.filetype);
+
+          for (i = strlen(event->data.message.data.dataload.filename);
+               event->data.message.data.dataload.filename[i] != '.' && i > 0; i--);
+
+          if (i != 0)  event->data.message.data.dataload.filename[i] = 0;
+
+          Icon_SetText  (prefspane, OW_sms_FILEPATH, event->data.message.data.dataload.filename);
+        }
+      }
+      break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionWin_Open                                                  *
+ * Purpose   : Generic options pane window opening routine.                    *
+ * Status    : Implementation (V1.1.0)                                         *
+ * V1.1.0    : 05/03/2001 - Update - Now driven by main window menu selector.  *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OptionWin_Open (event_pollblock *event,
+                     enum paneType    anOpenPane,
+                     char            *paneTemplate,
+                     void             (*aProc)(void))
+{
+  wimp_point  paneOffset;
+  int         aPane;
+  char        paneName[32], msgsName[32];
+
+
+  OptionPane_Close();  /* Record current options */
+
+  /* Display pane name in label box */
+  sprintf      (msgsName, "conf.pane%02d", anOpenPane);
+  Msgs_Lookup  (msgsName, paneName, 31);
+  Icon_SetText (prefswindow, OW_CFGDISP, paneName);
+
+  /* free (main) pane */
+  Event_ReleaseWindow (prefspane);
+  EventMsg_Release    (message_DATALOAD, prefspane, OptionPane_Drag);
+  Pane2_DeletePane    (prefswindow,      Pane2_GetPaneNumber(prefswindow, prefspane));
+
+  /* Re-create (main) pane */
+  currentPane  = anOpenPane;
+  paneOffset.x = 8;
+  paneOffset.y = 8;
+  prefspane    = Pane2_CreateAndAddPane (paneTemplate, 0, prefswindow, &paneOffset, NULL, 7);
+
+  aProc            ();  /* ... fill the pane options here */
+
+  aPane = (int)anOpenPane;
+  Event_Claim         (event_CLICK,      prefspane, event_ANY, OptionPane_Click, (void *)aPane);
+  EventMsg_Claim      (message_DATALOAD, prefspane,            OptionPane_Drag,  (void *)aPane);
+
+  Pane2_OpenWindow    (prefswindow, NULL);
+  Window_BringToFront (prefswindow);
+  Window_BringToFront (prefspane);
+  Window_BringToFront (prefsp2);
+  Window_BringToFront (prefsp3);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionWin_Cancel                                                *
+ * Purpose   : Close window & restore options.                                 *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 18/09/1999 - Now includes pane 3 support, and frees up memory   *
+ *                          used by the 'User Defined' string.                 *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OptionWin_Cancel(void)
+{
+  db_fn_begin();
+
+  if (prefsp2 != NULL)
+  {
+    /* Remove any handlers here (if we ever decide to attach any!) */
+    Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp2));
+  }
+  if (prefsp3 != NULL)
+  {
+    /* Remove any handlers here (if we ever decide to attach any!) */
+    Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp3));
+  }
+
+  /* Options pane */
+  Event_ReleaseWindow (prefspane);
+  EventMsg_Release    (message_DATALOAD, prefspane, OptionPane_Drag);
+  Pane2_DeletePane    (prefswindow,      Pane2_GetPaneNumber(prefswindow, prefspane));
+
+  /* Main window */
+  Event_ReleaseWindow (prefswindow);
+  Pane2_Delete        (prefswindow);
+
+  d->quit = TRUE;
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionWin_Set                                                   *
+ * Purpose   : Process clicks on 'Set' button in the configuration window.     *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 13/03/2002 - Update - Now calls OP_Store rather than _Close.    *
+ * V1.0.2    : 10/01/2000 - Update - Now updates application icon type info.   *
+ * V1.0.1    : 12/09/1999 - Update - Now updates iconbar icon.                 *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OptionWin_Set(event_pollblock *event, BOOL save)
+{
+  _kernel_swi_regs  r;
+  message_block     message;
+
+
+  db_fn_begin();
+
+  OptionPane_Store ();  /* Ensure open pane options are stored */
+  Options_Write    ();
+
+  if (save)
+  {
+    r.r[1] = (int)  "<MiniDisc$Choices>.Choices";
+    r.r[2] = strlen("<MiniDisc$Choices>.Choices") + 1;
+  }
+  else
+  {
+    if (!File_Exists("<Wimp$ScrapDir>.MiniDisc"))
+      OS_CLI("cdir <Wimp$ScrapDir>.MiniDisc");
+
+    r.r[1] = (int)  "<Wimp$ScrapDir>.MiniDisc.Choices";
+    r.r[2] = strlen("<Wimp$ScrapDir>.MiniDisc.Choices") + 1;
+  }
+
+  r.r[0] = (int) "MiniDisc$Options";
+  r.r[4] = 2;                 /* SetMacro     */
+  _kernel_swi(0x24, &r, &r);  /* OS_SetVarVal */
+
+  Options_Save("<MiniDisc$Options>");
+  Options_SaveSmartSave();
+
+  message.header.size    = sizeof(message);
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_ReloadChoices;
+
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+  if(event->data.mouse.button.value == button_SELECT)  OptionWin_Cancel();
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionWin_ReLoad                                                *
+ * Purpose   : Process clicks on 'ReLoad' button in the configuration window.  *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 10/01/2000 - Update - Now updates application icon type info.   *
+ * V1.0.3    : 05/01/2000 - Update - Added miscelaneous pane support.          *
+ * V1.0.2    : 12/09/1999 - Update - Now updates iconbar icon.                 *
+ * V1.0.1    : 11/09/1999 - Update - Added Printers and Shortcuts support.     *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OptionWin_ReLoad(event_pollblock *event)
+{
+  _kernel_swi_regs  r;
+  message_block     message;
+
+
+  r.r[0] = (int) "MiniDisc$Options";
+  r.r[1] = (int)  "<MiniDisc$Choices>.Choices";
+  r.r[2] = strlen("<MiniDisc$Choices>.Choices") + 1;
+  r.r[4] = 2;                 /* SetMacro     */
+  _kernel_swi(0x24, &r, &r);  /* OS_SetVarVal */
+
+  message.header.size    = sizeof(message);
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_ReloadChoices;
+
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+  if(event->data.mouse.button.value == button_SELECT)  OptionWin_Cancel();
+  else
+  {
+    Options_Load("<MiniDisc$Options>");
+    Options_Read();
+    switch(currentPane)
+    {
+      case iconbar:    OWFill_Iconbar();    break;
+      case misc:       OWFill_Misc();       break;
+      case filecore:   OWFill_FileCore();   break;
+      case image:      OWFill_ImageFS();    break;
+      case cdfs:       OWFill_CDFS();       break;
+      case psion:      OWFill_Psion();      break;
+      case printer:    OWFill_Printer();    break;
+      case shortcut:   OWFill_Shortcut();   break;
+      case network:    OWFill_Network();    break;
+      case toolbar:    OWFill_Toolbar();    break;
+      case smartsave:  OWFill_SmartSave();  break;
+      case trashcan:   OWFill_TrashCan();   break;
+      default:                              break;
+    }
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_PaneMenu                                             *
+ * Purpose   : Process clicks in menus in the configuration WINDOW.            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 05/03/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_PaneMenu (event_pollblock *event, void *reference)
+{
+  mouse_block  ptr;
+
+
+  Menu_SetFlags ((menu_ptr)reference, currentPane, 0, 0);
+
+  switch(event->data.selection[0])
+  {
+    case iconbar:   OptionWin_Open (event, iconbar,   "cfgiconbar",    OWFill_Iconbar);    break;
+
+    case misc:      OptionWin_Open (event, misc,      "cfgmisc",       OWFill_Misc);       break;
+
+    case filecore:  OptionWin_Open (event, filecore,  "cfgfilecore",   OWFill_FileCore);   break;
+
+    case image:     OptionWin_Open (event, image,     "cfgimage",      OWFill_ImageFS);    break;
+
+    case cdfs:      OptionWin_Open (event, cdfs,      "cfgcdfs",       OWFill_CDFS);       break;
+
+    case psion:     OptionWin_Open (event, psion,     "cfgpsion",      OWFill_Psion);      break;
+
+    case printer:   OptionWin_Open (event, printer,   "cfgprinter",    OWFill_Printer);    break;
+
+    case shortcut:  OptionWin_Open (event, shortcut,  "cfgshortcut",   OWFill_Shortcut);   break;
+
+    case filters:   OptionWin_Open (event, filters,   "cfgfilter",     OWFill_Filter);     break;
+
+    case network:   OptionWin_Open (event, network,   "cfgnetwork",    OWFill_Network);    break;
+
+    case toolbar:   OptionWin_Open (event, toolbar,   "cfgtoolbar",    OWFill_Toolbar);    break;
+
+    case smartsave: OptionWin_Open (event, smartsave, "cfgsmartsave",  OWFill_SmartSave);  break;
+
+    case trashcan:  OptionWin_Open (event, trashcan,  "cfgtrash",      OWFill_TrashCan);   break;
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)
+  {
+    Menu_SetFlags ((menu_ptr)reference, event->data.selection[0], 1, 0);
+    Menu_ShowLast ();
+  }
+  else
+    Event_Release (event_MENU, event_ANY, event_ANY, OptionPane_PaneMenu, reference);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionWin_Click                                                 *
+ * Purpose   : Process options window button clicks.                           *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 05/03/2001 - Update - Changed to work with menu selector code.  *
+ * V1.0.2    : 05/01/2000 - Update - Added miscelaneous pane support.          *
+ * V1.0.1    : 11/09/1999 - Update - Added Printers and Shortcuts support.     *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionWin_Click (event_pollblock *event, void *reference)
+{
+  char      menuText[512],
+            menuTitle[20];
+  menu_ptr  aMenu;
+
+
+  db_fn_begin();
+
+  if(event->data.mouse.button.value != button_MENU)  // Ignore Menu clicks
+  {
+    switch(event->data.mouse.icon)
+    {
+      case OW_SET:      OptionWin_Set    (event, FALSE);  break;
+
+      case OW_CANCEL:   OptionWin_Cancel ();              break;
+
+      case OW_RELOAD:   OptionWin_ReLoad (event);         break;
+
+      case OW_SAVE:     OptionWin_Set    (event, TRUE);   break;
+
+      case OW_CFGMENU:
+        Msgs_Lookup      ("conf.pane",  menuText, 511);
+        Msgs_Lookup      ("conf.panet", menuTitle, 19);
+        aMenu = Menu_New (menuTitle, menuText);
+        Menu_SetFlags    (aMenu, currentPane, 1, 0);
+        Event_Claim      (event_MENU, event_ANY, event_ANY, OptionPane_PaneMenu, (void *)aMenu);
+        Menu_PopUp       (aMenu, prefswindow, OW_CFGMENU);
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : WApp_OpenPrefs                                                  *
+ * Purpose   : Open prefs window.                                              *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 05/03/2001 - Update - Now uses pane selector menu code.         *
+ * V1.0.3    : 05/01/2000 - Update - Added miscelaneous pane support.          *
+ * V1.0.2    : 18/09/1999 - Update - Added networks & further shortcuts pane3  *
+ *                                   support.                                  *
+ * V1.0.1    : 11/09/1999 - Update - Added Printers and Shortcuts support.     *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionsWin_Open (void)
+{
+  wimp_point  paneOffset;
+  char        paneName[32],
+              msgsName[32];
+
+  Options_Read();  /* Copy choices for congiguration app use */
+
+  prefsp2 = NULL;
+  prefsp3 = NULL;
+
+  prefswindow = Pane2_CreateAndAddMain ("options", 32);
+  Event_Claim   (event_CLICK, prefswindow, event_ANY, OptionWin_Click, NULL);
+
+  paneOffset.x = 8;
+  paneOffset.y = 8;
+  currentPane  = iconbar;
+
+  sprintf      (msgsName, "conf.pane%02d", currentPane);
+  Msgs_Lookup  (msgsName, paneName, 31);
+  Icon_SetText (prefswindow, OW_CFGDISP, paneName);
+
+  prefspane = Pane2_CreateAndAddPane ("cfgiconbar", 0, prefswindow, &paneOffset, NULL, 0x0007);
+
+  Event_Claim    (event_CLICK,      prefspane, event_ANY, OptionPane_Click, (void *)iconbar);
+  EventMsg_Claim (message_DATALOAD, prefspane,            OptionPane_Drag,  (void *)iconbar);
+
+  OWFill_Iconbar();
+
+  Pane2_Show (prefswindow, open_CENTERED);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : App_Quit                                                        *
+ * Purpose   : WIMP Message_QUIT handler                                       *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 22/01/2001 - Update - Now calls exitANDDIE to rmkill module.    *
+ * V1.1.0    : 13/01/2000 - Update - Split out icon restore code.              *
+ * V1.0.2    : 12/09/1999 - Update - Now only restores filer icons (and runs   *
+ *                                   exit scripts) if the WIMP is not shutting *
+ *                                   down.                                     *
+ * V1.0.1    : 11/09/1999 - Update - Moved bits from 'Main'                    *
+ *                                 - Added code to run an extra script on exit *
+ *                                 - Now restores filer icons                  *
+ *                                 - Made this the main exit handler.          *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     : Called in response to WIMP message. - Usually from a Shutdown   *
+ *             or from selecting 'Quit' in the task-manager.                   *
+ * --------------------------------------------------------------------------- */
+BOOL MDSetup_Quit (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  r;
+
+
+  MDTrace(80, "MiniDisc is closing down...");
+
+  Template_ClearAll();  /* Remove templates */
+
+  r.r[0] = (int)  "MDSetup$Running";
+  r.r[2] = -1;
+  _kernel_swi(0x24, &r, &r);  // OS_SetVarVal
+
+  /* There is quite likely to be a fair amount of additional tidying-up required here... */
+
+  d->quit = TRUE;
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : main                                                            *
+ * Purpose   : PROGRAM ENTRY POINT                                             *
+ * Status    : Implementation (V1.0.6)                                         *
+ * V1.0.6    : 22/01/2001 - Update - Added debugging code.                     *
+ * V1.0.5    : 15/08/2000 - Update - General code tidy.                        *
+ * V1.0.4    : 10/01/2000 - Update - Now uses app.info structure to select the *
+ *                                   iconbar icon appearance.                  *
+ * V1.0.3    : 24/09/1999 - Propper start-up time-slicing code implemented.    *
+ * V1.0.2    : 12/09/1999 - Rewrite of polling loop, now uses PollIdle.        *
+ * V1.0.1    : 10/09/1999 - Now uses the general exit handler.                 *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     : Called on an OSModule_Enter.                                    *
+ * --------------------------------------------------------------------------- */
+int main(int argc, char *argv[])
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  char              spriteFilePath[25];
+  int               yeigfactor,
+                    filesize;
+  int               messageList = 0;
+  int               i;
+
+
+  db_init("MDSetup");
+
+  d = malloc(sizeof(app_info));
+  d->task = 0;
+  d->version = 310;
+  d->quit = FALSE;
+  strcpy(d->task_name, "MDSetup");
+  MDCfg = &(d->config);
+
+  /* Make sure we know what sort of platform we're on... */
+  regs.r[0]    = 0;
+  regs.r[1]    = 0;
+  anError      = _kernel_swi(0x06, &regs, &regs);
+  d->OSVersion = ((anError->errmess[8]  - '0') * 100) +
+                 ((anError->errmess[10] - '0') *  10) +
+                 ((anError->errmess[11] - '0'));
+
+  Screen_CacheModeInfo    ();
+  Resource_InitialisePath ("MDSetupRes");  /* Application resources initialisation. */
+
+  /* NOTE: This next bit is not very dynamic, in that it only chooses a spritefile when
+           MiniDisc starts.  If the mode is changed thereafter, you /could/ be using the
+           wrong aspect sprites! */
+
+  /* Load application sprites into our area */
+  OS_ReadModeVariable (-1, modevar_YEIGFACTOR, &yeigfactor);
+  sprintf (spriteFilePath, "MDSetupRes:Sprites%s", yeigfactor == 1 ? "22" : "");
+
+  resource_sprites              = NULL;
+  filesize                      = File_Size(spriteFilePath);
+  resource_sprites = malloc(filesize + 16);
+  resource_sprites->areasize    = filesize + 16;
+  resource_sprites->firstoffset = 16;
+
+  Sprite_InitArea         (resource_sprites);
+  Sprite_Load             (resource_sprites, spriteFilePath);
+
+  Msgs_LoadFile           ("Messages");     /* Load messages */
+
+/* ---- IMPORTANT NOTE: Everything before this next command is NOT within a WIMP task! ---- */
+
+  Event_Initialise4       (d->task_name, 380, &messageList, &d->task);
+
+  event_mask.value = 0x31;  /* Initialise the WIMP events that we're interested in. */
+
+  Template_Initialise     ();
+  Template_UseSpriteArea  (resource_sprites);
+  Template_LoadFile       ("Templates");
+  stdhandlers_Initialise  ();
+  EventMsg_Claim          (message_QUIT,           event_ANY, MDSetup_Quit, NULL);
+  EventMsg_Claim          (MDMsg_SetupToFront,     event_ANY, WinToFront,   NULL);
+  Window_AutoHelp         (event_ANY,   event_ANY);
+
+  /* Initialise shortcuts array */
+  memset(shortcutsArray, 0, maximumNumberOfShortcuts * sizeof(shortcuts_menu_head));
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    shortcutsArray[i].menuName[0] = 0;
+    shortcutsArray[i].first       = NULL;
+  }
+
+  /* Initialise top-level shortcuts menu */
+  Msgs_Lookup("menu.shortcut:Shortcuts", shortcutsArray[0].menuName, 19);
+  shortcutsArray[0].first = NULL;
+
+  /* Load the shortcuts file. */
+  Shortcuts_Load ("<MiniDisc$Shortcuts>");
+
+  /* Load the options file */
+  Options_Load("<MiniDisc$Options>");
+  Options_LoadSmartSave();
+
+  /* Open the options window */
+  OptionsWin_Open();
+
+  MDTrace(80,"Application initialisation complete");
+
+  while (!d->quit)  Event_Poll();
+
+  MDTrace(80, "MiniDisc config utility is closing down...");
+
+  Template_ClearAll();  /* Remove templates */
+
+  Wimp_CloseDown(d->task);
+
+//  MDSetup_Quit (NULL,NULL);  /* Tidy up on exit */
+
+
+  return 0;
+}
+
+

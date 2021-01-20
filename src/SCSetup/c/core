@@ -1,0 +1,2034 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/scedit.c                                                 *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include <time.h>
+
+#include "scsetup/core.h"
+#include "scsetup/app.h"
+#include "scsetup/event.h"
+#include "scsetup/command.h"
+#include "scsetup/file.h"
+#include "scsetup/shortcuts.h"
+#include "scsetup/path.h"
+#include "scsetup/url.h"
+
+#include "shared/stdhandlers.h"
+#include "shared/shortcuts.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:File.h"
+#include "DeskLib:Font.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Kbd.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Msgtrans.h"
+#include "DeskLib:Mem.h"
+#include "DeskLib:Pane2.h"
+#include "DeskLib:Resource.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * (Local) Global Variables                                                    *
+ * --------------------------------------------------------------------------- */
+shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts];
+shortcuts_menu_head *currentShortcutsMenu;
+window_handle        scwin_main,
+                     scwin_pane,
+                     info_dialog;
+dialog2_block       *shortcutDialog;
+char                 SCG_oldVarVal[1024];
+BOOL                 SCG_TestMenuOpen;
+
+
+BOOL OptionPane_Menu (event_pollblock *event, void *reference);
+BOOL MenuChoice      (event_pollblock *event, void *reference);
+
+
+#define MenuGet_Item(menu, item) ((menu_item *)&((menu_item *) (((int) menu) + sizeof(menu_block)))[item])
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : stringWidth                                                     *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/08/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+int stringWidth(char *string)
+{
+  _kernel_swi_regs  r;
+
+
+  r.r[0] = 1;
+  r.r[1] = (int) string;
+  r.r[2] = 0;
+  _kernel_swi (0x0400f9, &r, &r);      /* Wimp_TextOp (Get text length in OS uints. */
+
+
+  return r.r[0];
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : shortcutDialog_Dispose                                          *
+ * Purpose   : 'Cleanly' dispose of shortcuts (& menus) dialogs.               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 13/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void shortcutDialog_Dispose (void)
+{
+  if (shortcutDialog != NULL)  Dialog2_DeleteDialog (shortcutDialog);
+  shortcutDialog = NULL;
+
+  eventsDialog_Dispose();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_FindLeafname                                             *
+ * Purpose   : Calculate the 'leaf' name of a file / dir / app.                *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 24/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+char *SCEdit_FindLeafName(char *filename)
+{
+  int i;
+
+
+  for (i = strlen(filename); filename[i] != '.' && filename[i] != ':'; i--);
+
+  if (filename[i+1] == '!') i++;
+
+
+  return filename + i + 1;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ToolbarOn                                                       *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/08/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void ToolbarOn(void)
+{
+  Icon_Unshade   (scwin_pane, 22);
+  Icon_Unshade   (scwin_pane,  9);
+  Icon_Unshade   (scwin_pane, 10);
+  Icon_Unshade   (scwin_pane,  7);
+  Icon_Unshade   (scwin_pane,  2);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ToolbarOff                                                      *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/08/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void ToolbarOff(void)
+{
+  Icon_Shade   (scwin_pane, 22);
+  Icon_Shade   (scwin_pane,  9);
+  Icon_Shade   (scwin_pane, 10);
+  Icon_Shade   (scwin_pane,  7);
+  Icon_Shade   (scwin_pane,  2);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_ClickBuilder                                             *
+ * Purpose   : Process clicks on buttons in the Shortcuts builder window.      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 12/12/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_ClickBuilder (event_pollblock *event, void *reference)
+{
+  char            aBuffer[1024],
+                  menuTitle[20];
+  menu_ptr        aMenu, subMenu, subMenu2;
+  int             anIcon, i;
+  shortcuts_menu *next;
+  window_info     result;
+
+
+  switch(event->data.mouse.button.value)
+  {
+    case 1024:  /* Select (single-click) - Select icon, deselect everything else */
+      Window_GetInfo (scwin_main, &result);
+      Icon_SetRadios (scwin_main, 0, result.block.numicons, event->data.mouse.icon);
+      ToolbarOn();
+      break;
+
+    case 256:    /* Adjust (single-click) - Alter the selection */
+      i = Icon_GetSelect(event->data.mouse.window, event->data.mouse.icon);
+      Window_GetInfo (scwin_main, &result);
+      Icon_SetRadios (scwin_main, 0, result.block.numicons, event->data.mouse.icon);
+      Icon_SetSelect (event->data.mouse.window, event->data.mouse.icon, !i);
+      ToolbarOn();
+      break;
+
+    case 4:     /* Select (double-click) - ? */
+    case 1:     /* Adjust (double-click) - ? */
+      event->data.mouse.window = scwin_pane;  /* Fake which pane the event originated in */
+      SCEdit_BScutUpdate (event, reference);
+      break;
+
+    case 2:     /* Menu */
+      anIcon = Icon_WhichRadioInEsg(scwin_main, 1);
+      if (anIcon != -1)
+      {
+        next = currentShortcutsMenu->first;
+        for (i = 0; i < anIcon; i+=3)  next = next->next;
+      }
+      else
+        next = NULL;
+
+      /* Create the top-level menu structure. */
+      sprintf(aBuffer, "Info|Menu '%s',Shortcut '%s'|Switch to menu,New|Test,Apply,Save|Quit",
+              currentShortcutsMenu->menuName, next == NULL ? "" : next->shortcut.file.label);
+      aMenu = Menu_New ("SCSetup", aBuffer);
+      if (next == NULL)  Menu_SetFlags(aMenu, 2, 0, 1);
+
+      /* Attach the 'About' box to the top entry. */
+      Menu_AddSubMenu (aMenu, 0, (menu_ptr) info_dialog);
+
+      /* Create and attach the 'Menu Xxx' submenu. */
+      subMenu = Menu_New (currentShortcutsMenu->menuName, "Modify,Delete");
+      Menu_AddSubMenu  (aMenu, 1, subMenu);
+
+      /* Create and attach the 'Shortcut Xxx' submenu. */
+      subMenu = Menu_New (next == NULL ? "nothing!" : next->shortcut.file.label,
+                        "Modify,Delete|Shift up,Shift down|Copy to,Move to");
+      Menu_AddSubMenu  (aMenu, 2, subMenu);
+
+      /* Create a menu of all other Shortcuts menus (bar the open one). */
+      Msgs_Lookup ("conf.actn05", menuTitle, 19);
+      for (i = 0, subMenu2 = NULL; i < maximumNumberOfShortcuts; i++)
+      {
+        if (shortcutsArray[i].menuName[0] != 0 &&
+            strcmp(shortcutsArray[i].menuName, currentShortcutsMenu->menuName) != 0)
+        {
+          if (subMenu2 == NULL)  subMenu2 = Menu_New (menuTitle, shortcutsArray[i].menuName);
+          else                   subMenu2 = Menu_Extend (subMenu2,  shortcutsArray[i].menuName);
+        }
+      }
+
+      /* Attach the Copy to / Move to submenus. */
+      Menu_AddSubMenu (subMenu, 4, subMenu2);
+      Menu_AddSubMenu (subMenu, 5, subMenu2);
+
+      /* Attach the 'Switch to menu' submenu. */
+      Menu_AddSubMenu (aMenu, 3, subMenu2);
+
+      /* Create and attach the 'New' submenu. */
+      Msgs_Lookup ("conf.shacn", aBuffer, 255);
+      subMenu = Menu_New ("New", aBuffer);
+      Menu_AddSubMenu  (aMenu, 4, subMenu);
+
+      /* Claim events, then show the menu. */
+      Event_Claim (event_MENU, event_ANY, event_ANY, MenuChoice, NULL);
+      Menu_Show   (aMenu, event->data.mouse.pos.x, event->data.mouse.pos.y);
+      break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_CalcIconPos                                              *
+ * Purpose   : Calculate the size & position of an icon in the shortcuts menu. *
+ * Status    : Implementation (V1.1.0)                                         *
+ * V1.1.0    : 30/08/2002 - Update - Now uses generic string width code.       *
+ * V1.0.0    : 11/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_CalcIconPos(int minx, int maxy, icon_block *data)
+{
+  data->workarearect.min.x = minx;
+  data->workarearect.min.y = maxy - menuIconHeight;
+  data->workarearect.max.x = minx + stringWidth(data->data.indirecttext.buffer) + 48;
+  data->workarearect.max.y = maxy;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_AddArrow                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/12/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_AddArrow(int yPos, int length, BOOL showArrow)
+{
+  icon_createblock *icondata;
+  icon_handle       icon = NULL;
+
+
+  icondata = malloc (sizeof(icon_createblock));
+
+  icondata->window                      = scwin_main;
+  icondata->icondata.flags.value        = 0x1700001a;
+
+  if (showArrow) icondata->icondata.data.spritename[0] = 0x89;
+  else           icondata->icondata.data.spritename[0] = 0x00;
+  icondata->icondata.data.spritename[1] = 0x00;
+  icondata->icondata.workarearect.min.x = length + 32;
+  icondata->icondata.workarearect.min.y = -yPos - menuIconHeight;
+  icondata->icondata.workarearect.max.x = 80 + length;
+  icondata->icondata.workarearect.max.y = -yPos;
+  Wimp_CreateIcon (icondata, &icon);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_AddDash                                                  *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/12/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+int SCEdit_AddDash(int yPos, int length, BOOL ruledOff)
+{
+  icon_createblock *icondata;
+  icon_handle       icon = NULL;
+
+
+  icondata = malloc (sizeof(icon_createblock));
+
+  icondata->window                      = scwin_main;
+  icondata->icondata.flags.value        = 0x1700001a;
+  if (ruledOff) strcpy(icondata->icondata.data.spritename, "menusplit");
+  else          icondata->icondata.data.spritename[0] = 0x00;
+  icondata->icondata.workarearect.min.x = 0;
+  icondata->icondata.workarearect.min.y = -yPos - 32 - menuIconHeight;
+  icondata->icondata.workarearect.max.x = length + 64;
+  icondata->icondata.workarearect.max.y = -yPos - 32;
+  Wimp_CreateIcon (icondata, &icon);
+
+  if (ruledOff) return 1;
+  else          return 0;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_FillWindow                                               *
+ * Purpose   : Create the icons in the 'Edit Shortcuts menus' window.          *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 17/07/2000 - Update - Fixed arrow positioning problem on narrow *
+ *                                   menus with wide titles.                   *
+ * V1.0.1    : 11/11/1999 - Update - Now recieves icon widths from builders.   *
+ * V1.0.0    : 02/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+int SCEdit_FillWindow (shortcuts_menu *next)
+{
+  shortcuts_menu *top = next;
+  char           *aString;
+  int             mainwidth  = 0,
+                  mainheight = 0,
+                  itemWidth  = 0,
+                  dashCount  = 0,
+                  itemCount  = 0;
+
+
+  /* Start with the menu as wide as the title bar. */
+  mainwidth = stringWidth(currentShortcutsMenu->menuName) + 8;
+
+  MDTrace(1, "String size %d +", mainwidth);
+
+  /* Loop 1: Scan list, calculating largest item width */
+  for (; next != NULL; itemCount++)
+  {
+    switch(next->entry)
+    {
+      case file:     aString = next->shortcut.file.label;     break;
+      case url:      aString = next->shortcut.url.label;      break;
+      case path:     aString = next->shortcut.path.label;     break;
+      case menu:     aString = next->shortcut.menu.label;     break;
+      case command:  aString = next->shortcut.command.label;  break;
+      default:       aString = NULL;                          break;
+    }
+
+    itemWidth = stringWidth(aString) + 48;
+
+    MDTrace(1, "String size %d", itemWidth);
+
+    if (itemWidth > mainwidth)  mainwidth = itemWidth;
+
+    next = next->next;
+  }
+
+  /* Loop 2: Create icons */
+  for (itemCount = 0, dashCount = 0, next = top; next != NULL; itemCount++)
+  {
+    switch(next->entry)
+    {
+      case file:
+        SCEdit_AddFile (mainwidth, (itemCount * menuIconHeight) + (dashCount * 24), next);
+        SCEdit_AddArrow((itemCount * menuIconHeight) + (dashCount * 24), mainwidth, FALSE);
+        break;
+
+      case url:
+        SCEdit_AddURL  (mainwidth, (itemCount * menuIconHeight) + (dashCount * 24), next);
+        SCEdit_AddArrow((itemCount * menuIconHeight) + (dashCount * 24), mainwidth, FALSE);
+        break;
+
+      case path:
+        SCEdit_AddPath (mainwidth, (itemCount * menuIconHeight) + (dashCount * 24), next);
+        SCEdit_AddArrow((itemCount * menuIconHeight) + (dashCount * 24), mainwidth, TRUE);
+        break;
+
+      case menu:
+        SCEdit_AddMenu (mainwidth, (itemCount * menuIconHeight) + (dashCount * 24), next);
+        SCEdit_AddArrow((itemCount * menuIconHeight) + (dashCount * 24), mainwidth, TRUE);
+        break;
+
+      case command:
+        SCEdit_AddCmnd (mainwidth, (itemCount * menuIconHeight) + (dashCount * 24), next);
+        SCEdit_AddArrow((itemCount * menuIconHeight) + (dashCount * 24), mainwidth, FALSE);
+        break;
+    }
+    dashCount+= SCEdit_AddDash((itemCount * menuIconHeight) + (dashCount * 24),
+                              mainwidth,
+                              next->ruledOff);
+    next = next->next;
+  }
+
+  /* Calculate window height */
+  mainwidth  = mainwidth + 72;  /* ... + a bit ... */
+  mainheight = (itemCount * menuIconHeight) + (dashCount * 24) + 8;
+
+  /* ... then re-size it! */
+  Window_SetExtent (scwin_main, 0, -mainheight, mainwidth, 0);
+
+
+  return mainwidth;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcut_Dispose                                                *
+ * Purpose   : Dispose of a shortcut from a list.                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcut_Dispose (shortcuts_menu **item)
+{
+  db_fn_begin();
+
+  switch ((*item)->entry)
+  {
+    case file:
+      free ((*item)->shortcut.file.label);
+      free ((*item)->shortcut.file.fileName);
+      break;
+
+    case menu:
+      free ((*item)->shortcut.menu.label);
+      free ((*item)->shortcut.menu.intMenuName);
+      break;
+
+    case command:
+      free ((*item)->shortcut.command.label);
+      free ((*item)->shortcut.command.command);
+      break;
+
+    case url:
+      free ((*item)->shortcut.url.label);
+      free ((*item)->shortcut.url.address);
+      break;
+
+    case path:
+      free ((*item)->shortcut.path.label);
+      free ((*item)->shortcut.path.pathName);
+      break;
+  }
+  free (*item);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ShortcutsList_Dispose                                           *
+ * Purpose   : Dispose of a shortcuts structure (RECURSIVELY!)                 *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 12/02/2000 - Bugfix - Now checks pointer for NULL first.        *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     : Does not dump top level, as we only have a copy of the pointer. *
+ * --------------------------------------------------------------------------- */
+void ShortcutsList_Dispose (shortcuts_menu *item)
+{
+  db_fn_begin();
+
+  if (item != NULL)
+  {
+    if (item->next != NULL)
+    {
+      ShortcutsList_Dispose (item->next);
+      Shortcut_Dispose      (&(item->next));
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_FillAndShow                                              *
+ * Purpose   : Fills the builder viewer window, then displays it (correctly!)  *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 05/05/2002 - Preliminary implementation.                        *
+ * Notes     : This seems to be required, as Pane2 fails miserably to size the *
+ *             main window correctly.                                          *
+ * --------------------------------------------------------------------------- */
+void SCEdit_FillAndShow()
+{
+  window_openblock  block;
+  window_info       info,
+                    inf2;
+  int               paneWidth;
+
+
+  /* Re-create the icons */
+  paneWidth = SCEdit_FillWindow (currentShortcutsMenu->first);
+
+  /* Re-calculate the window size */
+  Window_GetInfo (scwin_main, &info);
+  Window_GetInfo (scwin_pane, &inf2);
+
+  block.window           = scwin_main;
+  block.screenrect.min.x = inf2.block.screenrect.min.x - 4 - paneWidth;
+  block.screenrect.min.y = info.block.screenrect.max.y + info.block.workarearect.min.y;
+  block.screenrect.max.x = inf2.block.screenrect.min.x - 4;
+  block.screenrect.max.y = info.block.screenrect.max.y;
+  block.scroll.x         = 0;
+  block.scroll.y         = 0;
+  block.behind           = -1;
+
+  /* Re-draw the window */
+  Window_SetExtent        (scwin_main, 0, -block.screenrect.max.y, block.screenrect.max.x, 0);
+  Pane2_OpenWindow        (scwin_main, &block);
+  Window_ForceWholeRedraw (scwin_main);
+
+  if (Icon_WhichRadio(scwin_main, 0, info.block.numicons) != info.block.numicons)
+    ToolbarOff();
+
+
+  return;
+}
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_RefreshWindow                                            *
+ * Purpose   : Refresh the contents of the shortcuts builder window.           *
+ * Status    : Implementation (V1.1.2)                                         *
+ * V1.1.2    : 22/04/2001 - Update - Removed redundant title calc code.        *
+ * V1.1.1    : 12/11/1999 - Update - Now shifts main window relative to LHS of *
+ *                                   toolbar.                                  *
+ * V1.1.0    : 11/11/1999 - Update - Now correctly re-sizes the window.        *
+ * V1.0.2    : 07/11/1999 - Bugfix - Now deletes last icon in list properly.   *
+ * V1.0.1    : 06/11/1999 - Bugfix - Now deletes all icons properly.           *
+ * V1.0.0    : 04/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_RefreshWindow (void)
+{
+  shortcuts_menu *next = currentShortcutsMenu->first;
+  int             i;
+
+
+  /* Calculate the number of icons we're talking about */
+  for (i = 1; next != NULL; i++)  next = next->next;
+
+  /* Loop backwards through them, deleting as we go */
+  for (i=3*i; i >= 0; i--)  Wimp_DeleteIcon (scwin_main, i);
+
+  SCEdit_FillAndShow();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_FindNewShortcut                                          *
+ * Purpose   : Calculate where, and create a shortcut in the builder window.   *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 05/08/2000 - Update - Now allows you to pass in the menu.       *
+ * V1.1.0    : 08/12/1999 - Recode - No longer references 'parent' pointers.   *
+ * V1.0.1    : 07/11/1999 - Bugfix - Now handles empty lists.                  *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+shortcuts_menu *SCEdit_FindNewShortcut (shortcuts_menu_head *top, int menuPos)
+{
+  shortcuts_menu *aShortcut, *previous;
+  int             i = 0;
+
+
+  if (menuPos == NULL)  menuPos  = Icon_WhichRadioInEsg(scwin_main, 1);
+
+  if (top     == NULL)  previous = currentShortcutsMenu->first;  /* Use current if no menu supld */
+  else                  previous = top->first;
+
+
+  if (menuPos == -1)  /* Find related shortcut item */
+  {
+    if (previous != NULL)
+    for (i = 0; previous->next != NULL; i+=3) previous = previous->next;
+  }
+  else  for (i = 0; i < menuPos; i+=3)        previous = previous->next;
+
+  if(previous != NULL)  /* Insert an item somewhere in a menu */
+  {
+    aShortcut = malloc(sizeof(shortcuts_menu));
+    aShortcut->e_type = none;
+    aShortcut->next   = previous->next;
+    previous->next    = aShortcut;
+  }
+  else  /* Add a new first item to a previously empty menu */
+  {
+    if (top == NULL)
+    {
+      currentShortcutsMenu->first = malloc(sizeof(shortcuts_menu));
+      aShortcut = currentShortcutsMenu->first;
+      aShortcut->e_type = none;
+    }
+    else
+    {
+      top->first = malloc(sizeof(shortcuts_menu));
+      aShortcut = top->first;
+      aShortcut->e_type = none;
+    }
+    aShortcut->next = NULL;
+  }
+
+
+  return aShortcut;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_MainDL                                                   *
+ * Purpose   : Process 'Dataload' events in the main shortcuts builder window. *
+ * Status    : Implementation (V3.0.1)                                         *
+ * V3.0.1    : 02/03/2002 - Update - Restored code to support the 'Quick-drag- *
+ *                                   adds' configuration options.              *
+ * V3.0.0    : 11/12/1999 - Recode - Shifted shortcut types to separate proc's *
+ * V2.0.0    : 09/12/1999 - Update - One or two refinements...                 *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_MainDL (event_pollblock *event, void *reference)
+{
+  msgtrans_filedesc *filedesc;
+  int                fileType    = File_GetType(event->data.message.data.dataload.filename),
+                     i;
+  BOOL               altPressed  = Kbd_KeyDown(inkey_ALT),
+                     ctrlPressed = Kbd_KeyDown(inkey_CTRL),
+                     showDialog  = TRUE;
+  char               buffer[5];
+
+
+  if (File_Exists("<MiniDisc$Choices>.Choices"))  /* Config file found */
+  {
+    MsgTrans_LoadFile(&filedesc, "<MiniDisc$Choices>.Choices");
+
+    MsgTrans_Lookup  (filedesc, "short.quickdrag:no", buffer, 5);
+    MakeLower        (buffer, i);
+
+    if ((strcmp (buffer, "yes") == 0 && !altPressed) ||
+        (strcmp (buffer, "yes") != 0 &&  altPressed)) showDialog = FALSE;
+    else                                              showDialog = TRUE;
+
+    MsgTrans_LoseFile(filedesc);
+  }
+  else
+    showDialog = TRUE;
+
+       if ((fileType == 0xf91 || fileType == 0xb28) && !ctrlPressed)
+         SB_URL_MainWinDrag  (fileType, showDialog, event);
+
+  else if (File_IsDirectory(event->data.message.data.dataload.filename) && !ctrlPressed)
+         SB_Path_MainWinDrag (showDialog, event);
+
+  else   SB_File_MainWinDrag (showDialog, event);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_OpenWindow                                               *
+ * Purpose   : Open the 'Edit Shortcuts menus' window.                         *
+ * Status    : Implementation (V1.1.4)                                         *
+ * V1.1.4    : 22/04/2001 - Update - Added 'to front' code when builder window *
+ *                                   is already open.                          *
+ * V1.1.3    : 11/11/1999 - Update - Pane now attached to RHS of main window.  *
+ * V1.1.2    : 07/11/1999 - Update - Added a 'dataload' handler.               *
+ * V1.1.1    : 06/11/1999 - Update - uses new window handles.                  *
+ * V1.1.0    : 02/11/1999 - Update - Split out the icon creation code.         *
+ * V1.0.1    : 30/10/1999 - Bugfix - Now updates window title correctly.       *
+ * V1.0.0    : 17/10/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_OpenWindow (void)
+{
+  wimp_point  paneOffset;
+  wimp_box    tbArea;
+  int         menuNumber = 0; /* Default to using the main 'Shortcuts' menu */
+
+
+  if (scwin_main == NULL)
+  {
+    currentShortcutsMenu = &shortcutsArray[menuNumber];
+    scwin_main           = Window_Create("shortcuts", 0);
+    shortcutDialog       = NULL;  /* Initialise dialogs */
+    eventsDialog         = NULL;  /* Initialise dialogs */
+    info_dialog           = Window_Create("Info", 0);
+
+    Msgs_Lookup ("app.name",    Icon_GetTextPtr (info_dialog, 0), 22);
+    Msgs_Lookup ("app.purpose", Icon_GetTextPtr (info_dialog, 1), 29);
+    Msgs_Lookup ("app.author",  Icon_GetTextPtr (info_dialog, 2), 28);
+    Msgs_Lookup ("app.licence", Icon_GetTextPtr (info_dialog, 8), 20);
+    Msgs_Lookup ("app.version", Icon_GetTextPtr (info_dialog, 3), 32);
+
+    Window_SetTitle   (scwin_main, currentShortcutsMenu->menuName);
+    Pane2_AddMain     (scwin_main);
+
+    paneOffset.x = 4;
+    paneOffset.y = 0;
+    scwin_pane   = Pane2_CreateAndAddPane("scbuts", 0, scwin_main, &paneOffset, NULL, 519);
+
+    tbArea.min.x = 0;
+    tbArea.min.y = -342;
+    tbArea.max.x = 64;
+    tbArea.max.y = 0;
+    Wimp_SetExtent(scwin_pane, &tbArea);
+
+    ToolbarOff();
+
+    Event_Claim    (event_CLICK,      scwin_pane, event_ANY,     SCEdit_ClickToolBox, NULL);
+    Event_Claim    (event_CLICK,      scwin_main, event_ANY,     SCEdit_ClickBuilder, NULL);
+    EventMsg_Claim (message_DATALOAD, scwin_main, SCEdit_MainDL, NULL);
+
+    SCEdit_FillAndShow();
+  }
+  else
+  {
+    Window_BringToFront(scwin_main);
+    Window_BringToFront(scwin_pane);
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BMenuSelect                                              *
+ * Purpose   : Process clicks on the 'Select shortcuts menu' button.           *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 05/12/1999 - Update - No longer uses message structure.         *
+ * V1.0.3    : 28/11/1999 - Update - No longer uses static array for building  *
+ *                          menu description.                                  *
+ * V1.0.2    : 24/11/1999 - Update - Now uses 'maximunNumberOfShortcuts'.      *
+ * V1.0.1    : 07/11/1999 - Update - Now uses the menu name to determine if it *
+ *                          exists to allow for empty menus.                   *
+ * V1.0.0    : 31/10/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BMenuSelect (event_pollblock *event, void *reference)
+{
+  menu_ptr     aMenu = NULL;
+  char         menuTitle[20];
+  int          i;
+
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    if (shortcutsArray[i].menuName[0] != 0)
+    {
+      if (aMenu == NULL)
+      {
+        Msgs_Lookup ("conf.actn05", menuTitle, 19);
+        aMenu = Menu_New(menuTitle, shortcutsArray[i].menuName);
+      }
+      else aMenu = Menu_Extend(aMenu, shortcutsArray[i].menuName);
+    }
+  }
+
+  Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,(void *)(8 | ((int)aMenu << 4)));
+  Menu_PopUp  (aMenu, scwin_pane, OW_sc3_SCMSELE);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BMenuOK                                                  *
+ * Purpose   : Create a new shortcuts menu.                                    *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 13/02/2000 - Update - Now closes 'events' dialog where req'd.   *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_BMenuOK (dialog2_blockptr aDialog)
+{
+  mouse_block  ptr;
+  int          i;
+
+
+  /* Close the event handler dialog if it's open */
+  Wimp_GetPointerInfo(&ptr);
+  if (!ptr.button.data.adjust)  eventsDialog_Dispose();
+
+  /* I'm not too sure, but I /think/ we might need some duplicate checking in here! */
+
+  for (i = 0; strlen(shortcutsArray[i].menuName) != 0; i++);
+
+  Icon_GetText(aDialog->window, SD_newm_menuName, shortcutsArray[i].menuName);
+  shortcutsArray[i].first = NULL;
+  if (Icon_GetSelect(aDialog->window, SD_newm_Attach))
+  {
+    currentShortcutsMenu->e_type = currentEdit.e_type;
+    if (currentShortcutsMenu->e_type == keyboard)
+    {
+      currentShortcutsMenu->event.keyboard.value = currentEdit.event.keyboard.value;
+    }
+    else /* Other WIMP generated event. */
+    {
+      i = i;
+    }
+  }
+  else  currentShortcutsMenu->e_type = none;
+
+  currentShortcutsMenu = &shortcutsArray[i];
+  Window_SetTitle      (scwin_main, currentShortcutsMenu->menuName);
+  SCEdit_RefreshWindow ();
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : BMenuBut                                                        *
+ * Purpose   : Process additional button clicks in the Create/Update shortcuts *
+ *             menu dialog.                                                    *
+ * Status    : Development.                                                    *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL BMenuBut (event_pollblock *event, void *reference)
+{
+  return SCEdit_EWH (event, SD_newm_Edit, SD_newm_Attach, SD_newm_Cancel,
+                     &(currentShortcutsMenu->e_type),
+                     &(currentShortcutsMenu->event.data));
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BMenuCreate                                              *
+ * Purpose   : Process clicks on the 'New Shortcuts Menu' button.              *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 13/02/2000 - Update - Does handlers for 'events' dialog.        *
+ * V1.0.1    : 22/12/1999 - Update - Now puts the caret in the menu name icon. *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BMenuCreate (event_pollblock *event, void *reference)
+{
+  char iconText[128];
+
+
+  /* Check we're not already open! */
+  shortcutDialog_Dispose();
+
+  /* Create dialog & set-up some handlers */
+  shortcutDialog = Dialog2_CreateDialogBlock("mname", SD_newm_OK, SD_newm_Cancel, NULL,
+                                             SCEdit_BMenuOK, NULL);
+  Dialog2_OpenDialogStatic (shortcutDialog, open_CENTEREDUNDERPOINTER);
+  Event_Claim              (event_CLICK, shortcutDialog->window, SD_newm_Cancel, BMenuBut, NULL);
+  Event_Claim              (event_CLICK, shortcutDialog->window, SD_newm_Attach, BMenuBut, NULL);
+  Event_Claim              (event_CLICK, shortcutDialog->window, SD_newm_Edit,   BMenuBut, NULL);
+
+  /* Set 'attach' button states */
+  Icon_Shade    (shortcutDialog->window, SD_newm_Edit);
+  Icon_Deselect (shortcutDialog->window, SD_newm_Attach);
+
+  /* Menu 'OK' button */
+  Msgs_Lookup     ("shct.menu03", Icon_GetTextPtr(shortcutDialog->window, SD_newm_OK), 128);
+
+  /* Menu label field */
+  Icon_SetCaret   (shortcutDialog->window, SD_newm_menuName);
+
+  /* Set window title & open up! */
+  Msgs_Lookup     ("shct.menu01", iconText, 128);
+  Window_SetTitle (shortcutDialog->window, iconText);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_RMenuOK                                                  *
+ * Purpose   : Rename a new shortcuts menu.                                    *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 13/02/2000 - Update - Now closes 'events' dialog where req'd.   *
+ * V1.0.3    : 12/02/2000 - Update - Checks to see if we really need to update *
+ *                                   anything.                                 *
+ * V1.0.2    : 03/01/2000 - Update - Now redraws builder window to ensure the  *
+ *                                   window is big enough for the new title.   *
+ * V1.0.1    : 24/11/1999 - Update - Now updates builder window title, and     *
+ *                                   does duplicate checks.                    *
+ * V1.0.0    : 23/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_RMenuOK (dialog2_blockptr aDialog)
+{
+  char           *newName    = Icon_GetTextPtr(aDialog->window, SD_newm_menuName);
+  BOOL            menuExists = FALSE;
+  shortcuts_menu *next;
+  mouse_block     ptr;
+  int             i;
+
+
+  /* Close the event handler dialog if it's open */
+  Wimp_GetPointerInfo(&ptr);
+  if (!ptr.button.data.adjust)  eventsDialog_Dispose();
+
+  /* Pre-scan 0 - Ensure menu needs updating. */
+  if (strcmp(newName, currentShortcutsMenu->menuName) != 0)
+  {
+    /* Pre-scan 1 - Check for duplicates */
+    for (i = 0; i < maximumNumberOfShortcuts; i++)
+    {
+      if (shortcutsArray[i].menuName[0] != 0 && strcmp(shortcutsArray[i].menuName, newName) == 0)
+        menuExists = TRUE;
+    }
+
+    if (menuExists)
+    {
+      Msgs_Report(MD_Err_sexists, "err.sexists");
+      return;  /* Go ahead, be boring, leave early, see if we give a shit. */
+    }
+
+    /* 1) Scan all other menus and alter references to old menu name */
+    for (i = 0; i < maximumNumberOfShortcuts; i++)
+    {
+      next = shortcutsArray[i].first;
+      if (next != NULL)
+      {
+        do
+        {
+          if (next->entry == menu)
+          {
+            if (strcmp(next->shortcut.menu.intMenuName, currentShortcutsMenu->menuName) == 0)
+              strcpy(next->shortcut.menu.intMenuName, newName);
+          }
+          next = next->next;
+        } while (next != NULL);
+      }
+    }
+
+    /* 2) Change the menu name */
+    memset  (currentShortcutsMenu->menuName, 0x00, menuNameLength);
+    strncpy (currentShortcutsMenu->menuName, Icon_GetTextPtr(aDialog->window, SD_newm_menuName),
+             menuNameLength);
+
+  /* 3) Update the window */
+  Window_SetTitle      (scwin_main, currentShortcutsMenu->menuName);
+  SCEdit_RefreshWindow ();
+  }
+
+  /* 4) Update 'events' handlers */
+  if (Icon_GetSelect(aDialog->window, SD_newm_Attach))
+  {
+    currentShortcutsMenu->e_type = currentEdit.e_type;
+    if (currentShortcutsMenu->e_type == keyboard)
+    {
+      MDTrace(1, "Writeback : %d", currentEdit.event.keyboard.value);
+      currentShortcutsMenu->event.keyboard.value = currentEdit.event.keyboard.value;
+    }
+  }
+  else  currentShortcutsMenu->e_type = none;
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BMenuUpdate                                              *
+ * Purpose   : Process clicks on the 'Update menu' button.                     *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 13/08/2000 - Update - Added protection for 'Bookmarks' menu.    *
+ * V1.1.0    : 12/02/2000 - Update - Rename becomes Update. - Removed error    *
+ *                                   handler, replaced with icon shading.      *
+ * V1.0.2    : 22/12/1999 - Update - Now puts the caret in the menu name icon. *
+ * V1.0.1    : 24/11/1999 - Update - Now uses message for main shortcuts menu  *
+ *                          recognition.                                       *
+ * V1.0.0    : 23/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BMenuUpdate (event_pollblock *event, void *reference)
+{
+  char iconText[128];
+
+
+  /* Check we're not already open! */
+  shortcutDialog_Dispose();
+
+  /* Create dialog & set-up some handlers */
+  shortcutDialog = Dialog2_CreateDialogBlock("mname", SD_newm_OK, SD_newm_Cancel, NULL,
+                                             SCEdit_RMenuOK, NULL);
+  Dialog2_OpenDialogStatic (shortcutDialog, open_UNDERPOINTER);
+  Event_Claim              (event_CLICK, shortcutDialog->window, SD_newm_Cancel, BMenuBut, NULL);
+  Event_Claim              (event_CLICK, shortcutDialog->window, SD_newm_Attach, BMenuBut, NULL);
+  Event_Claim              (event_CLICK, shortcutDialog->window, SD_newm_Edit,   BMenuBut, NULL);
+
+  /* Detail... */
+  switch(currentShortcutsMenu->e_type)
+  {
+    case none:
+      currentEdit.e_type               = keyboard;
+      currentEdit.event.keyboard.value = 0;
+      break;
+
+    case keyboard:
+      currentEdit.e_type               = currentShortcutsMenu->e_type;
+      currentEdit.event.keyboard.value = currentShortcutsMenu->event.keyboard.value;
+      break;
+
+    case wimp:
+      currentEdit.e_type               = currentShortcutsMenu->e_type;
+      break;
+  }
+
+  /* Set 'attach' button states */
+  if (currentShortcutsMenu->e_type == none)
+  {
+    Icon_Shade    (shortcutDialog->window, SD_newm_Edit);
+    Icon_Deselect (shortcutDialog->window, SD_newm_Attach);
+  }
+  else
+  {
+    Icon_Unshade  (shortcutDialog->window, SD_newm_Edit);
+    Icon_Select   (shortcutDialog->window, SD_newm_Attach);
+  }
+
+  /* Menu label field */
+  Icon_SetText    (shortcutDialog->window, SD_newm_menuName, currentShortcutsMenu->menuName);
+  Icon_SetCaret   (shortcutDialog->window, SD_newm_menuName);
+
+  /* Menu 'OK' button */
+  Msgs_Lookup     ("shct.menu04", Icon_GetTextPtr(shortcutDialog->window, SD_newm_OK), 128);
+
+  /* Check if we're the 'standard' Shortcuts or Bookmarks menu, shade label if so. */
+  Msgs_Lookup     ("shct.mainmenu", iconText, 128);
+  if (strcmp(currentShortcutsMenu->menuName, iconText) == 0)
+          Icon_Shade   (shortcutDialog->window, SD_newm_menuName);
+  else
+  {
+    Msgs_Lookup   ("shct.bookmark", iconText, 128);
+    if (strcmp(currentShortcutsMenu->menuName, iconText) == 0)
+          Icon_Shade   (shortcutDialog->window, SD_newm_menuName);
+    else  Icon_Unshade (shortcutDialog->window, SD_newm_menuName);
+  }
+
+  /* Set window title & open up! */
+  Msgs_Lookup     ("shct.menu02", iconText, 128);
+  Window_SetTitle (shortcutDialog->window, iconText);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BMenuDelete                                              *
+ * Purpose   : Process clicks on the 'delete shortcuts menu' button.           *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 13/08/2000 - Update - Added 'Bookmarks' code.                   *
+ * V1.0.2    : 13/02/2000 - Update - Added a confirmation dialog box.          *
+ * V1.0.1    : 12/02/2000 - Bugfix - Was falling over when trying to delete an *
+ *                                   empty shortcuts menu. - fixed!            *
+ * V1.0.0    : 24/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BMenuDelete (event_pollblock *event, void *reference)
+{
+  BOOL                 foundDel = FALSE;
+  shortcuts_menu_head *newMenu  = NULL;
+  shortcuts_menu      *next,
+                      *old,
+                      *tempPtr;
+  int                  i;
+  char                 iconText[128];
+
+
+  db_fn_begin();
+
+  /* Make sure we're not trying to delete the 'main' shortcuts menu. */
+  Msgs_Lookup ("shct.mainmenu", iconText, 128);
+  if (strcmp(currentShortcutsMenu->menuName, iconText) == 0)
+  {
+    Msgs_Report(MD_Err_sdelete, "err.sdelete", iconText);
+
+    return TRUE;
+  }
+
+  /* Make sure we're not trying to delete the 'Bookmarks' shortcuts menu. */
+  Msgs_Lookup ("shct.bookmark", iconText, 128);
+  if (strcmp(currentShortcutsMenu->menuName, iconText) == 0)
+  {
+    Msgs_Report(MD_Err_sdelete, "err.sdelete", iconText);
+
+    return TRUE;
+  }
+
+  // Confirm delete
+  if (queryDialog("warn.smdel", "warn.bok01", "warn.bno01", NULL) != qdResult_OK)  return TRUE;
+
+  db_tracef (10, "About to delete all references to menu %s", currentShortcutsMenu->menuName);
+
+  /* 1) Scan all other menus and remove references to old menu name */
+  for (i = 0, next = NULL; i < maximumNumberOfShortcuts; i++)
+  {
+    if (shortcutsArray[i].menuName[0] != 0 && !foundDel)
+    {
+      if (strcmp(shortcutsArray[i].menuName, currentShortcutsMenu->menuName) == 0)
+        foundDel = TRUE;
+      else
+        newMenu  = &shortcutsArray[i];
+    }
+
+    old  = next;
+    next = shortcutsArray[i].first;
+    if (next != NULL)
+    {
+      do
+      {
+        if (next->entry == menu)
+        {
+          if (strcmp(next->shortcut.menu.intMenuName, currentShortcutsMenu->menuName) == 0)
+          {
+            tempPtr = next->next;
+
+            if (next == shortcutsArray[i].first)
+            {
+              free (shortcutsArray[i].first);
+              shortcutsArray[i].first = tempPtr;
+            }
+            else
+            {
+              free (old->next);
+              old->next = tempPtr;
+            }
+          }
+        }
+        old  = next;
+        next = next->next;
+      } while (next != NULL);
+    }
+  }
+
+  /* 2) Remove the current menu */
+  ShortcutsList_Dispose (currentShortcutsMenu->first);
+  Shortcut_Dispose      (&(currentShortcutsMenu->first));
+  currentShortcutsMenu->first       = NULL;
+  currentShortcutsMenu->menuName[0] = 0;
+
+  /* 3) Select the previous menu in the list */
+  currentShortcutsMenu = newMenu;
+  Window_SetTitle      (scwin_main, currentShortcutsMenu->menuName);
+  SCEdit_RefreshWindow ();
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+BOOL OptionPane_Menu (event_pollblock *event, void *reference)
+{
+  menu_ptr     menu = (menu_ptr)(((int)reference) >> 4);
+  int          icon = ((int)reference) & 0x0f;
+  BOOL         adjust = NULL;
+
+
+  switch (icon)
+  {
+    case 8:  /* Shortcuts builder : Select a shortcuts menu */
+      adjust = SCEdit_MenuSelect               (event, menu, event->data.selection[0]);
+      break;
+
+    case 9:  /* Shortcuts builder : Create a shortcut */
+      adjust = SCEdit_ShortcutCreate           (event);
+      break;
+
+    case 11:  /* Shortcuts builder : Copy / move a shortcut */
+      adjust = SCEdit_ShortcutCopyMove         (event, menu, event->data.selection[0], TRUE);
+      break;
+
+    default:  /* /Should/ never happen! */
+      break;
+  }
+
+  if (!adjust)  Event_Release (event_MENU, event_ANY, event_ANY, OptionPane_Menu, reference);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutCreate                                              *
+ * Purpose   : Process clicks on the 'Create a shortcut' button.               *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 05/12/1999 - Update - No longer uses message structure.         *
+ * V1.0.0    : 31/10/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BScutCreate (event_pollblock *event, void *reference)
+{
+  menu_ptr     aMenu;
+  char         menuText[256],
+               menuTitle[32];
+
+
+  Msgs_Lookup ("conf.shac",  menuText, 255);
+  Msgs_Lookup ("conf.shact", menuTitle, 31);
+  aMenu = Menu_New(menuTitle, menuText);
+  Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu, (void *)(9 | ((int)aMenu << 4)));
+  Menu_PopUp (aMenu, scwin_pane, OW_sc3_SCBCREA);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutUpdate                                              *
+ * Purpose   : Process clicks on the 'Update a shortcut' button.               *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 13/02/2000 - Update - Added an error handler.                   *
+ * V1.0.1    : 07/11/1999 - Update - Now uses a global dialog to avoid         *
+ *                                   multiple windows appearing on screen at   *
+ *                                   the same time.                            *
+ * V1.0.0    : 01/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BScutUpdate (event_pollblock *event, void *reference)
+{
+  shortcuts_menu *next;
+  int             anIcon = Icon_WhichRadioInEsg(scwin_main, 1),
+                  i;
+
+
+  if (anIcon != -1)
+  {
+    shortcutDialog_Dispose();
+
+    next = currentShortcutsMenu->first;
+    for (i = 0; i < anIcon; i+=3)  next = next->next;
+    switch (next->entry)
+    {
+      case file:    shortcutDialog = Dialog2_CreateDialogBlock("sfile",    SD_file_OK,
+                                             SD_file_Cancel, SCOP1, SCOK1, next);  break;
+      case url:     shortcutDialog = Dialog2_CreateDialogBlock("surl",     SD_url_OK,
+                                             SD_url_Cancel,  SCOP2, SCOK2, next);  break;
+      case path:    shortcutDialog = Dialog2_CreateDialogBlock("spath",    SD_path_OK,
+                                             SD_path_Cancel, SCOP3, SCOK3, next);  break;
+      case menu:    shortcutDialog = Dialog2_CreateDialogBlock("smenu",    SD_menu_OK,
+                                             SD_menu_Cancel, SCOP4, SCOK4, next);  break;
+      case command: shortcutDialog = Dialog2_CreateDialogBlock("scommand", SD_cmnd_OK,
+                                             SD_cmnd_Cancel, SCOP0, SCOK0, next);  break;
+    }
+    Dialog2_OpenDialogStatic(shortcutDialog, open_CENTEREDUNDERPOINTER);
+
+  }
+  else  Msgs_Report(MD_Err_sselected, "err.sselect");
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutDelete                                              *
+ * Purpose   : Process clicks on the 'Delete a shortcut' button.               *
+ * Status    : Implementation (V2.0.1)                                         *
+ * V2.0.1    : 13/02/2000 - Update - Added an error handler & confirmation.    *
+ * V2.0.0    : 08/12/1999 - Recode - Complete rewrite to use Desklib 'Mem'     *
+ *                                   functions without a 'parent' pointer.     *
+ * V1.0.1    : 07/11/1999 - Bugfix - Now deletes top & bottom shortcuts        *
+ *                                   without crashing quite spectacularly.     *
+ * V1.0.0    : 04/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BScutDelete (event_pollblock *event, void *reference)
+{
+  shortcuts_menu *current = currentShortcutsMenu->first,
+                 *parent  = NULL,
+                 *tempPtr;
+  int             anIcon = Icon_WhichRadioInEsg(scwin_main, 1),
+                  i;
+
+
+  if (anIcon != -1)
+  {
+    /* Confirm delete */
+    if (queryDialog("warn.scdel", "warn.bok01", "warn.bno01", NULL) != qdResult_OK)  return TRUE;
+
+    for (i = 0; i < anIcon; i+=3)
+    {
+      parent  = current;
+      current = current->next;
+    }
+
+    tempPtr = current->next;
+
+    if (anIcon != 0)
+    {
+      free (parent->next);
+      parent->next = tempPtr;
+    }
+    else
+    {
+      free (currentShortcutsMenu->first);
+      currentShortcutsMenu->first = tempPtr;
+    }
+
+    SCEdit_RefreshWindow ();
+
+    ToolbarOff();
+  }
+  else  Msgs_Report(MD_Err_sselected, "err.sselect");
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutMatrix                                              *
+ * Purpose   : Apply a shift to shortcuts data structure.                      *
+ * Status    : Implementation (V2.0.0)                                         *
+ * V2.0.0    : 08/12/1999 - Recode - No longer requires 'parent' pointers.     *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SCEdit_BScutMatrix (shortcuts_menu *i1,
+                         shortcuts_menu *i2,
+                         shortcuts_menu *i3,
+                         shortcuts_menu *i4,
+                         shortcuts_menu *current)
+{
+  shortcuts_menu *iSpare;
+
+
+  /*
+    Before		After
+    ------------+-------------
+    1 next		2 next
+    2 next		3 next
+    3 next		1 next
+    4 next		SAME
+  */
+
+  if (i1 == NULL)
+  {
+    iSpare = currentShortcutsMenu->first;
+    currentShortcutsMenu->first = i2->next;
+  }
+  else
+  {
+    iSpare   = i1->next;
+    i1->next = i2->next;
+  }
+
+  i2->next = i3->next;
+  i3->next = iSpare;
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutMoveUp                                              *
+ * Purpose   : Process clicks on the 'Move shortcut up' button.                *
+ * Status    : Implementation (V2.0.1)                                         *
+ * V2.0.1    : 13/02/2000 - Update - Added an error handler.                   *
+ * V2.0.0    : 08/12/1999 - Recode - No longer requires 'parent' pointers.     *
+ * V1.1.0    : 07/11/1999 - Update - Now uses the generic matrix for shifting. *
+ * V1.0.0    : 04/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BScutMoveUp (event_pollblock *event, void *reference)
+{
+  shortcuts_menu *current = currentShortcutsMenu->first,
+                 *i1      = NULL,
+                 *i2      = NULL,
+                 *i3      = current,
+                 *i4      = current->next;
+  int             anIcon  = Icon_WhichRadioInEsg(scwin_main, 1),
+                  i;
+
+
+  switch (anIcon)
+  {
+    case -1: /* No icon selected */
+      Msgs_Report(MD_Err_sselected, "err.sselect");
+      break;
+
+    case 0: /* Top of menu */
+      break;
+
+    default:
+      for (i = 0; i < anIcon; i+=3)
+      {
+        i1      = i2;
+        i2      = current;
+        current = current->next;
+        i3      = current;
+        i4      = current->next;
+      }
+
+      SCEdit_BScutMatrix   (i1, i2, i3, i4, current);
+      SCEdit_RefreshWindow ();
+      Icon_Select          (scwin_main, anIcon - 3);
+      break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutMoveDown                                            *
+ * Purpose   : Process clicks on the 'Move shortcut down' button.              *
+ * Status    : Implementation (V2.0.1)                                         *
+ * V2.0.1    : 13/02/2000 - Update - Added an error handler.                   *
+ * V2.0.0    : 08/12/1999 - Recode - No longer requires 'parent' pointers.     *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BScutMoveDown (event_pollblock *event, void *reference)
+{
+  shortcuts_menu *current = currentShortcutsMenu->first,
+                 *i1      = NULL,
+                 *i2      = current,
+                 *i3      = current->next,
+                 *i4      = NULL;
+  int             anIcon  = Icon_WhichRadioInEsg(scwin_main, 1),
+                  i;
+
+
+  if (anIcon == -1)  /* No icon selected */
+  {
+    Msgs_Report(MD_Err_sselected, "err.sselect");
+    return TRUE;
+  }
+
+  if (i3 != NULL) i4 = i3->next;
+
+  for (i = 0; i < anIcon; i+=3)
+  {
+    i1      = current;
+    current = current->next;
+    i2      = current;
+    i3      = current->next;
+    i4      = current->next->next;
+  }
+
+  if (current->next == NULL)  return TRUE;  /* Already at the bottom of the list! */
+
+  SCEdit_BScutMatrix   (i1, i2, i3, i4, current);
+  SCEdit_RefreshWindow ();
+  Icon_Select          (scwin_main, anIcon + 3);
+
+
+  return TRUE;
+}
+
+
+BOOL noMoreMenus (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  r;
+  message_block     message;
+
+
+  if (SCG_TestMenuOpen)
+  {
+    /* 7. Restore the Shortcuts macro. */
+    r.r[0] = (int)  "MiniDisc$Shortcuts";
+    r.r[1] = (int)  SCG_oldVarVal;
+    r.r[2] = strlen(SCG_oldVarVal) + 1;
+    r.r[4] = 2;  // SetMacro
+    _kernel_swi(0x24, &r, &r);  // OS_SetVarVal
+
+    /* 8. Send a message to reload the shortcuts */
+    message.header.size    = sizeof(message);
+    message.header.sender  = NULL;
+    message.header.myref   = NULL;
+    message.header.yourref = NULL;
+    message.header.action  = MDMsg_ReloadShortcuts;
+    Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+    /* 9. Delete the temporary file. */
+
+
+    SCG_TestMenuOpen = FALSE;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BTest                                                    *
+ * Purpose   : Process clicks on the 'TEST' button.                            *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BTest (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  r;
+  message_block     message;
+
+
+  /* 1. Save the shortcuts to a temporary file. */
+  Shortcuts_Save ("<Wimp$ScrapDir>.TestScuts");
+
+  /* 2. Store current Shortcuts macro somewhere. */
+  OS_ReadVarVal("MiniDisc$Shortcuts", SCG_oldVarVal, 1023);
+
+  /* 3. Set the shortcuts macro to the new (temp) file. */
+  r.r[0] = (int)  "MiniDisc$Shortcuts";
+  r.r[1] = (int)  "<Wimp$ScrapDir>.TestScuts";
+  r.r[2] = strlen("<Wimp$ScrapDir>.TestScuts") + 1;
+  r.r[4] = 2;  // SetMacro
+  _kernel_swi(0x24, &r, &r);  // OS_SetVarVal
+
+  /* 4. Send a message to load the temporary shortcuts */
+  message.header.size    = sizeof(message);
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_ReloadShortcuts;
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+  /* 5. Send a message to display the menu */
+  message.header.size    = sizeof(message);
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_ShowShortcut;
+  strcpy(message.data.bytes, currentShortcutsMenu->menuName);
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+  SCG_TestMenuOpen = TRUE;
+
+  /* 6. Wait for a bit ... (pref. until the menu is closed) */
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BOK                                                      *
+ * Purpose   : Process clicks on the 'OK' button.                              *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.0    : 11/12/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BOK (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  r;
+  message_block     message;
+  mouse_block       ptr;
+
+
+  Shortcuts_Save ("<Wimp$ScrapDir>.Shortcuts");
+
+  r.r[0] = (int)  "MiniDisc$Shortcuts";
+  r.r[1] = (int)  "<Wimp$ScrapDir>.Shortcuts";
+  r.r[2] = strlen("<Wimp$ScrapDir>.Shortcuts") + 1;
+  r.r[4] = 2;  // SetMacro
+  _kernel_swi(0x24, &r, &r);  // OS_SetVarVal
+
+  message.header.size    = sizeof(message);
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_ReloadShortcuts;
+
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (!ptr.button.data.adjust)  App_Quit(NULL, NULL);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BSave                                                    *
+ * Purpose   : Process clicks on the 'Save' button.                            *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 11/12/1999 - Recode - Now uses the same code as 'OK'.           *
+ * V1.0.1    : 09/12/1999 - Update - Now calls save code to write to a file.   *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BSave (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  r;
+  message_block     message;
+  mouse_block       ptr;
+
+
+  Shortcuts_Save ("<MiniDisc$Choices>.Shortcuts");
+
+  r.r[0] = (int)  "MiniDisc$Shortcuts";
+  r.r[1] = (int)  "<MiniDisc$Choices>.Shortcuts";
+  r.r[2] = strlen("<MiniDisc$Choices>.Shortcuts") + 1;
+  r.r[4] = 2;  // SetMacro
+  _kernel_swi(0x24, &r, &r);  // OS_SetVarVal
+
+  message.header.size    = sizeof(message);
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_ReloadShortcuts;
+
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (!ptr.button.data.adjust)  App_Quit(NULL, NULL);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BCancel                                                  *
+ * Purpose   : Process clicks on the 'Cancel' button.                          *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 07/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BCancel (event_pollblock *event, void *reference)
+{
+  /* Close the builder window */
+  Pane2_Delete (Pane2_GetMainHandle(event->data.mouse.window));
+  scwin_main = NULL;
+  scwin_pane = NULL;
+
+  /* Ensure we don't leave any dialogs open */
+  shortcutDialog_Dispose();
+
+  App_Quit(NULL, NULL);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_BScutMoveCopy                                            *
+ * Purpose   : Process clicks on the 'Copy/Move' a shortcut button.            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 05/08/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_BScutMoveCopy (event_pollblock *event, void *reference)
+{
+  window_handle  pwin    = Pane2_GetMainHandle(event->data.mouse.window);
+  menu_ptr       aMenu   = NULL;
+  int            anIcon  = Icon_WhichRadioInEsg(pwin, 1),
+                 i;
+  char           menuTitle[20];
+
+
+  if (anIcon == -1)  /* No icon selected */
+  {
+    Msgs_Report(MD_Err_sselected, "err.sselect");
+    return TRUE;
+  }
+
+
+  /* Build the menu */
+       if (event->data.mouse.button.data.select)  Msgs_Lookup ("conf.sccopy", menuTitle, 19);
+  else if (event->data.mouse.button.data.adjust)  Msgs_Lookup ("conf.scmove", menuTitle, 19);
+  else return TRUE;
+
+  db_tracef (10, "about to create the menu (%s) ...", menuTitle);
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    if (shortcutsArray[i].menuName[0] != 0 && strcmp(shortcutsArray[i].menuName, currentShortcutsMenu->menuName) != 0)
+    {
+      if (aMenu == NULL)  aMenu = Menu_New    (menuTitle, shortcutsArray[i].menuName);
+      else                aMenu = Menu_Extend (aMenu,     shortcutsArray[i].menuName);
+    }
+  }
+
+  /* Create an event handler for the menu */
+  Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,(void *)(11 | ((int)aMenu << 4)));
+
+
+  /* Display the menu */
+  Menu_PopUp  (aMenu, scwin_pane, OW_sc3_SCCPMV);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_ClickToolBox                                             *
+ * Purpose   : Process clicks on buttons in the Shortcuts builder toolbox.     *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 05/08/2000 - Update - Added support for move/copy icon & file   *
+ *                                   selector.                                 *
+ * V1.0.0    : 31/10/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_ClickToolBox (event_pollblock *event, void *reference)
+{
+  switch(event->data.mouse.icon)
+  {
+    case OW_sc3_SCMSELE:  return SCEdit_BMenuSelect   (event, reference);
+    case OW_sc3_SCMCREA:  return SCEdit_BMenuCreate   (event, reference);
+    case OW_sc3_SCMEDIT:  return SCEdit_BMenuUpdate   (event, reference);
+    case OW_sc3_SCMDELE:  return SCEdit_BMenuDelete   (event, reference);
+    case OW_sc3_SCBCREA:  return SCEdit_BScutCreate   (event, reference);
+    case OW_sc3_SCBEDIT:  return SCEdit_BScutUpdate   (event, reference);
+    case OW_sc3_SCBDELE:  return SCEdit_BScutDelete   (event, reference);
+    case OW_sc3_SCBMVUP:  return SCEdit_BScutMoveUp   (event, reference);
+    case OW_sc3_SCBMVDN:  return SCEdit_BScutMoveDown (event, reference);
+    case OW_sc3_TEST:     return SCEdit_BTest         (event, reference);
+    case OW_sc3_SAVE:     return SCEdit_BSave         (event, reference);
+    case OW_sc3_CANCEL:   return SCEdit_BCancel       (event, reference);
+    case OW_sc3_OK:       return SCEdit_BOK           (event, reference);
+    case OW_sc3_SCCPMV:   return SCEdit_BScutMoveCopy (event, reference);
+    case OW_sc3_FILESLC:  return TRUE;
+    default:              return TRUE;
+  }
+
+
+  return TRUE;  /* /Should/ never happen */
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_ShortcutCreate                                           *
+ * Purpose   : Process clicks on entries in the 'Create a shortcut' menu.      *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 07/11/1999 - Update - Now uses global dialog to avoid multiple  *
+ *                                   windows appearing on screen at once.      *
+ * V1.0.0    : 01/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_ShortcutCreate (event_pollblock *event)
+{
+  mouse_block  ptr;
+
+
+  shortcutDialog_Dispose();
+
+  switch (event->data.selection[0])
+  {
+    case 0: shortcutDialog = Dialog2_CreateDialogBlock("scommand", SD_cmnd_OK, SD_cmnd_Cancel,
+                                                       SCOP0, SCOK0, NULL); break;
+
+    case 1: shortcutDialog = Dialog2_CreateDialogBlock("sfile", SD_file_OK, SD_file_Cancel,
+                                                       SCOP1, SCOK1, NULL); break;
+
+    case 2: shortcutDialog = Dialog2_CreateDialogBlock("surl", SD_url_OK, SD_url_Cancel,
+                                                       SCOP2, SCOK2, NULL); break;
+
+    case 3: shortcutDialog = Dialog2_CreateDialogBlock("spath", SD_path_OK, SD_path_Cancel,
+                                                       SCOP3, SCOK3, NULL); break;
+
+    case 4: shortcutDialog = Dialog2_CreateDialogBlock("smenu", SD_menu_OK, SD_menu_Cancel,
+                                                       SCOP4, SCOK4, NULL); break;
+  }
+  Dialog2_OpenDialogStatic (shortcutDialog, open_CENTEREDUNDERPOINTER);
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) Menu_ShowLast ();
+
+
+  return ptr.button.data.adjust;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_ShortcutCopyMove                                         *
+ * Purpose   : Process clicks on entries in the 'Copy / move a shortcut' menu. *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 05/08/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_ShortcutCopyMove (event_pollblock *event, menu_ptr menu, int selection, BOOL reshow)
+{
+  char                *destMenu = Menu_GetText         (menu, selection),
+                      *menuName = ((icon_data *) menu->title)->indirecttext.buffer;
+  int                  anIcon   = Icon_WhichRadioInEsg (scwin_main, 1),
+                       i;
+  mouse_block          ptr;
+  shortcuts_menu_head *dest     = NULL;
+  shortcuts_menu      *from     = currentShortcutsMenu->first,
+                      *to       = NULL,
+                      *parent   = NULL,
+                      *tempPtr;
+
+
+  if (anIcon != -1)
+  {
+    for (i = 0; i < anIcon; i+=3)
+    {
+      parent = from;
+      from   = from->next;   /* Locate source shortcut */
+    }
+
+    for (i = 0; i < maximumNumberOfShortcuts; i++)     /* Locate destination menu */
+      if (strcmp(shortcutsArray[i].menuName, destMenu) == 0)  dest = &(shortcutsArray[i]);
+
+    to = SCEdit_FindNewShortcut (dest, -1);            /* Find a destination shortcut structure */
+    memcpy(to, from, sizeof(shortcuts_menu));          /* Copy data                             */
+    to->next = NULL;                                   /* Ensure next pointer is NULL           */
+
+    if (strncmp(menuName, "Move", 4) == 0)             /* Delete where necessary here */
+    {
+      tempPtr = from->next;
+
+      if (anIcon != 0)
+      {
+        free (parent->next);
+        parent->next = tempPtr;
+      }
+      else
+      {
+        free (currentShortcutsMenu->first);
+        currentShortcutsMenu->first = tempPtr;
+      }
+    }
+
+    SCEdit_RefreshWindow();  /* only for deletes */
+  }
+  else Msgs_Report(MD_Err_unknown, "err.unknown");/* Somehow we got here without an icon selected */
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust && reshow == TRUE)
+  {
+    Menu_ShowLast ();
+    Icon_Select   (scwin_main, anIcon);
+  }
+
+
+  return ptr.button.data.adjust;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SCEdit_MenuSelect                                               *
+ * Purpose   : Select a shortcuts menu to edit.                                *
+ * Status    : Implementation (V1.1.2)                                         *
+ * V1.1.2    : 12/02/2000 - Update - Now hides dialogs on menu change.         *
+ * V1.1.1    : 23/12/1999 - Bugfix - Now correctly scans 12 char. menu names.  *
+ * V1.1.0    : 24/11/1999 - Recode - Completely re-written to do new menu      *
+ *                          checks, and select menus based upon a comparison   *
+ *                          with the menu description, rather than a simple    *
+ *                          use of the menu selection position which didn't    *
+ *                          work if there were gaps in the array.              *
+ * V1.0.0    : 06/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SCEdit_MenuSelect (event_pollblock *event, menu_ptr menu, int selection)
+{
+  shortcuts_menu_head *newShortcutsMenu = NULL;
+  menu_item           *menuItem         = MenuGet_Item(menu, selection);
+  BOOL                 indirected       = menuItem->iconflags.data.indirected;
+  char                *menuText;
+  char                 spareBuffer[wimp_MAXNAME + 1];
+  mouse_block          ptr;
+  int                  i;
+
+
+  if (indirected)  menuText = menuItem->icondata.indirecttext.buffer;
+  else
+  {
+    strncpy (spareBuffer, menuItem->icondata.text, wimp_MAXNAME);
+    spareBuffer[wimp_MAXNAME] = 0;
+    menuText                  = spareBuffer;
+  }
+
+  if (strcmp(currentShortcutsMenu->menuName, menuText) != 0)  /* A different menu requested? */
+  {
+    shortcutDialog_Dispose();
+
+    for (i = 0; i < maximumNumberOfShortcuts; i++)
+    {
+      if (strcmp(shortcutsArray[i].menuName, menuText) == 0)  /* Found selected menu? */
+        newShortcutsMenu = &shortcutsArray[i];
+    }
+
+    if (newShortcutsMenu != NULL)
+    {
+      currentShortcutsMenu = newShortcutsMenu;
+      Window_SetTitle      (scwin_main, currentShortcutsMenu->menuName);
+      SCEdit_RefreshWindow ();
+    }
+    else  Msgs_Report(MD_Err_snotfound, "err.snotfound");
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) Menu_ShowLast ();
+
+
+  return ptr.button.data.adjust;
+}
+
+
+
+
+
+
+BOOL MenuChoice (event_pollblock *event, void *reference)
+{
+  mouse_block  ptr;
+
+
+  switch (event->data.selection[0])
+  {
+    case 0:  break;  /* Info... (submenu) */
+
+    case 1:  /* Menu 'Xxx' */
+      switch (event->data.selection[1])
+      {
+        case 0:  SCEdit_BMenuUpdate (event, reference);  break;  /* Update menu */
+        case 1:  SCEdit_BMenuDelete (event, reference);  break;  /* Delete menu */
+      }
+      break;
+
+    case 2:  /* Shortcut 'Xxxx' */
+      switch (event->data.selection[1])
+      {
+        case 0:  SCEdit_BScutUpdate   (event, reference);  break;  /* Modify     */
+        case 1:  SCEdit_BScutDelete   (event, reference);  break;  /* Delete     */
+        case 2:  SCEdit_BScutMoveUp   (event, reference);  break;  /* Shift up   */
+        case 3:  SCEdit_BScutMoveDown (event, reference);  break;  /* Shift down */
+
+        case 4:  /* Copy to    */
+        case 5:  /* Move to    */
+          SCEdit_ShortcutCopyMove (event,
+                 MenuGet_Item(MenuGet_Item(menu_currentopen, 2)->submenu.menu, 4)->submenu.menu,
+                 event->data.selection[2], FALSE);
+          break;
+      }
+      break;
+
+    case 3:  /* Switch to menu   */
+      SCEdit_MenuSelect (event, MenuGet_Item(menu_currentopen, 3)->submenu.menu,
+                         event->data.selection[1]);
+      ToolbarOff();
+      break;
+
+    case 4:  /* New... (submenu) */
+      shortcutDialog_Dispose();
+
+      switch (event->data.selection[1])
+      {
+        case 0:  SCEdit_BMenuCreate (event, reference);  break;  /* New Shortcuts menu... */
+
+        case 1:  /* Execute a command     */
+          shortcutDialog = Dialog2_CreateDialogBlock("scommand", SD_cmnd_OK, SD_cmnd_Cancel,
+                                                     SCOP0, SCOK0, NULL);
+          break;
+
+        case 2:  /* Open file / dir / app */
+          shortcutDialog = Dialog2_CreateDialogBlock("sfile", SD_file_OK, SD_file_Cancel,
+                                                     SCOP1, SCOK1, NULL);
+          break;
+
+        case 3:  /* Launch a URL          */
+          shortcutDialog = Dialog2_CreateDialogBlock("surl", SD_url_OK, SD_url_Cancel,
+                                                     SCOP2, SCOK2, NULL);
+          break;
+
+        case 4:  /* Directory menu        */
+          shortcutDialog = Dialog2_CreateDialogBlock("spath", SD_path_OK, SD_path_Cancel,
+                                                     SCOP3, SCOK3, NULL);
+          break;
+
+        case 5:  /* Shortcuts menu        */
+          shortcutDialog = Dialog2_CreateDialogBlock("smenu", SD_menu_OK, SD_menu_Cancel,
+                                                     SCOP4, SCOK4, NULL);
+          break;
+
+        case 6:  /* Insert keystrokes     */
+          break;
+      }
+      Dialog2_OpenDialogStatic (shortcutDialog, open_CENTEREDUNDERPOINTER);
+      break;
+
+    case 5:  SCEdit_BTest      (event, reference);  break;  /* Test menus       */
+    case 6:  SCEdit_BOK        (event, reference);  break;  /* Use menus        */
+    case 7:  SCEdit_BSave      (event, reference);  break;  /* Save menus       */
+    case 8:  SCEdit_BCancel    (event, reference);  break;  /* Abandon changes  */
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) Menu_ShowLast ();
+
+
+  return TRUE;
+}
+
+

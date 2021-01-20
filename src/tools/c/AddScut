@@ -1,0 +1,131 @@
+/*
+ * Program : AddScut
+ * Purpose : Add a specified shortcut into the MiniDisc configuration, then
+ *           send a message to tell MiniDisc to reload them.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "kernel.h"
+
+#define MDMsg_Block 0x091300
+
+#define MDMsg_ReloadShortcuts ((MDMsg_Block + 6))
+
+
+int main(int argc, char *argv[])
+{
+  _kernel_swi_regs  r;
+  char              menuName[32] = {""},
+                    readBuff[1024];
+  char             *menuStart;
+  int               i,
+                    foundMenu = 0;
+  FILE             *handle,
+                   *outfile;
+  int               msgBlock[5];
+
+
+  if (argc < 3)  return 0;  // Syntax: AddScut <FileName> <Shortcuts Menu>
+
+  for (i = 2; i <= argc; i++)
+  {
+    strcat(menuName, argv[i]);
+    strcat(menuName, " ");
+  }
+  menuName[strlen(menuName)-2] = 0;
+
+
+  if ((handle = fopen("<MiniDisc$Shortcuts>", "r+")) != NULL)
+  {
+    outfile = fopen("<Wimp$ScrapDir>.mdastmp", "w");
+
+    while (!feof(handle))
+    {
+      for (i = 0;
+           (readBuff[i] = fgetc(handle)) != 10 && !feof(handle);
+           i++);                                              // read a line from the file
+      if (feof(handle))  break;
+      readBuff[i] = 0;                                        // terminate our buffer
+      for (i = 0; readBuff[i] == ' '; i++);                   // Skip white space
+
+
+      /* *************************************************** */
+      /* ** Look for a menu, any menu, go on, I DARE YOU! ** */
+      /* *************************************************** */
+
+      if (strncmp(readBuff + i, "Menu", 4) == 0)
+      {
+        menuStart = readBuff+i+5;
+        for (i = 0; menuStart[i] == ' '; i++);  // skip ws
+        menuStart = menuStart + i + 1;          // skip "
+        for (i = 0; menuStart[i] != '\"'; i++);  // skip ws
+
+        if (strncmp(menuName, menuStart, i) == 0 && strlen(menuName) == i)
+          foundMenu = 1;
+
+        fprintf(outfile, "%s\n", readBuff);
+      }
+
+      else if (strncmp(readBuff + i, "EndMenu", 7) == 0 && foundMenu == 1)
+      {
+        r.r[0] = 17;
+        r.r[1] = (int) argv[1];
+        _kernel_swi(0x08, &r, &r);
+
+        for (i = strlen(argv[1]); i > 0 && argv[1][i] != '.' && argv[1][i] != ':'; i--);
+
+        if (argv[1][i] == '.' || argv[1][i] == ':')  i++;
+
+        if (r.r[0] > 0 && r.r[0] < 3)
+          fprintf(outfile, "  %s\t\"%s\"\t%s\n",
+                  (r.r[0] == 1 || r.r[0] == 3) ? "file" : "path",
+                  argv[1]+i, argv[1]);
+
+        fprintf(outfile, "EndMenu\n");
+
+        foundMenu = 0;
+      }
+
+
+      /* *************************************************** */
+      /* *** Other text that we're not interested in.    *** */
+      /* *************************************************** */
+
+      else  fprintf(outfile, "%s\n", readBuff);
+    }
+
+    fclose(handle);
+    fclose(outfile);
+
+    system("wipe <MiniDisc$Shortcuts> ~CF~R~V");
+    system("copy <Wimp$ScrapDir>.mdastmp <MiniDisc$Shortcuts> ~CDF~V");
+
+    r.r[0] = 310;
+    r.r[1] = 0x4b534154;  // "TASK"
+    r.r[2] = (int) "Add Shortcut";
+    r.r[3] = 0;
+
+    _kernel_swi(0x400c0, &r, &r);  // Wimp_Initialise
+
+    r.r[0] = 17;  // user message
+    r.r[1] = (int) &msgBlock;
+    r.r[2] = 0;   // Broadcast;
+
+    msgBlock[0] = 20;  // 5 * sizeof(int)
+    msgBlock[3] = 0;
+    msgBlock[4] = MDMsg_ReloadShortcuts;
+
+    _kernel_swi(0x400e7, &r, &r);  // Wimp_SendMessage
+
+    r.r[0] = msgBlock[1];
+    r.r[1] = 0x4b534154;  // "TASK"
+
+    _kernel_swi(0x400dd, &r, &r);  // Wimp_CloseDown
+  }
+
+
+  return 1;
+}

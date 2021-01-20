@@ -1,0 +1,337 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/module.c,v $
+
+   $Revision: 1.8 $
+   $Date: 2004/04/14 14:44:05 $
+
+   Main module functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "signal.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "MiniDisc/core/module.h"
+#include "MiniDisc/core/ModHdr.h"
+#include "minidisc/core/hideicons.h"
+
+#include "MiniDisc/filters/filters.h"
+
+#include "oslib/osmodule.h"
+#include "oslib/wimp.h"
+
+
+
+/**
+ * This next line ensures that the minidisc WIMP messages defined in the
+ * shared/global.h file can be used in non-DeskLib source files.
+ */
+#define message_action  bits
+/**
+ * Note: it will be un-defined at the end of this file.
+ */
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables (Available in .h)
+--------------------------------------------------------------------------------
+*/
+app_info *d;
+int       AppInDesktop,
+          MD_ModeHasChanged,
+          MD_FilerStarted;
+char      MD_tmp[buffer_size];
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MiniDisc__Finalise
+   Purpose   : Module shutdown handler.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 06/05/2001 - Update - CV5 compatability update.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : As specified in ModHdr.cmhg
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *MiniDisc__Finalise(int fatal, int podule, void *pw)
+{
+  _kernel_swi_regs  regs;
+
+
+  MDFilters_Setup (FALSE, pw);
+
+  if (d->task != NULL)
+    xwimp_close_down ((wimp_t)d->task);
+
+  db_drop();
+
+  regs.r[0] = 7;                           // Free
+  regs.r[2] = (int)d;                      // MiniDiscs RMA memory allocation
+  (void) _kernel_swi(0x1e, &regs, &regs);  // OS_Module
+
+//  osmodule_free   ((void *)d);
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure :
+   Purpose   : Try to restore MiniDisc icons after abnormal termination.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 17/02/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void abort_cleanup(int aSignal)
+{
+  IconBar_RestoreIcons();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MiniDisc__Initialise
+   Purpose   : Module initialisation call handler.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 22/01/2001 - Update - Added desktop flag.
+   V1.0.1    : 03/01/2000 - Update - Now uses macro application name def.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : As specified in ModHdr.cmhg
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *MiniDisc__Initialise (const char *tail, int podule_base, void *pw)
+{
+  _kernel_swi_regs   regs;
+
+
+  MDFilters_Setup (TRUE, pw);
+
+  regs.r[0] = 6;
+  regs.r[3] = sizeof(app_info);
+  (void) _kernel_swi(0x1e, &regs, &regs);  // OS_Module
+
+//  pw           = (void *)regs.r[2];
+//  pw         = osmodule_alloc (sizeof(app_info));  // I don't know why this doesn't work!
+
+  d            = (void *)regs.r[2];//pw;
+  d->task      = 0;
+  d->version   = 310;
+  MDCfg        = &(d->config);
+  AppInDesktop = 0;
+
+  strcpy(d->task_name, Module_Title);
+
+  db_init(d->task_name);
+
+  signal (SIGABRT, abort_cleanup);
+  signal (SIGFPE,  abort_cleanup);
+  signal (SIGILL,  abort_cleanup);
+  signal (SIGINT,  abort_cleanup);
+  signal (SIGSEGV, abort_cleanup);
+  signal (SIGTERM, abort_cleanup);
+  signal (SIGSTAK, abort_cleanup);
+
+  regs.r[0] = -1;
+  regs.r[1] = -1;
+  (void) _kernel_swi(0x0400ec, &regs, &regs);  // Wimp_SlotSize (read current slot info)
+
+#ifndef MDBuild_Dist
+  // Add 256k if we're debugging
+  regs.r[0] += (1024 * 256);
+#endif
+
+  regs.r[1] = -1;
+  (void) _kernel_swi(0x0400ec, &regs, &regs);  // Wimp_SlotSize (update current slot info)
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MiniDisc__Service
+   Purpose   : Module service-call handler.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 04/11/2001 - Update - Added Service_StartedFiler support code.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : As specified in ModHdr.cmhg
+--------------------------------------------------------------------------------
+*/
+extern void MiniDisc__Service (int service_number, _kernel_swi_regs *r, void *ws)
+{
+  ws = ws;
+
+  switch(service_number)
+  {
+    case 0x11:
+      if(r->r[2] == (int)Image__RO_Base)
+      {
+        r->r[1] = 0; /*-- refuse to release app. wrkspe --*/
+      }
+      break;
+
+    case 0x4b:  /* Service_StartFiler */
+      MD_FilerStarted = TRUE;
+      break;
+  }
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MiniDisc__CmdHandler
+   Purpose   : Module * command procedure dispatcher.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 21/04/2001 - Update - Now uses auto-generated header from cmhg
+                                     to ascertain command numbers.
+   V1.0.1    : 06/08/2000 - Update - Added support for additional commands.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : As specified in ModHdr.cmhg
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *MiniDisc__CmdHandler(const char *arg_string, int argc, int number, void *pw)
+{
+  wimp_message     message;
+  char             cmdBuffer[256];
+  int              i;
+  wimp_version_no  vsn = wimp_VERSION_RO40;
+  wimp_block       pBlock;
+  wimp_t           th;
+
+
+  switch(number)
+  {
+    case CMD_Desktop_MiniDisc:
+      osmodule_enter (d->task_name, NULL);
+      break;
+
+    case CMD_MD_FilerQuit:
+      IconBar_FilerQuit ((char **)(&arg_string));
+      break;
+
+    case CMD_MD_FilerStart:
+      IconBar_RestoreIcon ((char *)arg_string);
+      break;
+
+    case CMD_MD_TaskQuit:
+      for (i = 0; arg_string[i] > 0x1f; i++)  cmdBuffer[i] = arg_string[i];
+      cmdBuffer[i] = 0;
+      XUtil_TaskSendQuit  (cmdBuffer);
+      break;
+
+    case CMD_MD_ShowMenu:
+      message.size     = sizeof(message);
+      message.sender   = (wimp_t)d->task;
+      message.my_ref   = NULL;
+      message.your_ref = NULL;
+      message.action   = MDMsg_ShowShortcut;
+
+      for (i = 0; arg_string[i] > 0x1f; i++)  message.data.reserved[i] = arg_string[i];
+      message.data.reserved[i] = 0;
+
+      wimp_poll_idle ((wimp_poll_flags)256, &pBlock, (os_t)100, NULL);
+
+      wimp_send_message (wimp_USER_MESSAGE, &message, (wimp_t)d->task);
+      break;
+
+    case CMD_MD_ShowPathMenu:
+      message.size     = sizeof(message);
+      message.sender   = (wimp_t)d->task;
+      message.my_ref   = NULL;
+      message.your_ref = NULL;
+      message.action   = (bits)MDMsg_PathMenu;
+
+      for (i = 0; arg_string[i] > 0x1f; i++)  message.data.reserved[i] = arg_string[i];
+      message.data.reserved[i] = 0;
+
+      wimp_poll_idle ((wimp_poll_flags)256, &pBlock, (os_t)100, NULL);
+
+      wimp_send_message (wimp_USER_MESSAGE, &message, (wimp_t)d->task);
+      break;
+
+    case CMD_PinToggle:
+    case CMD_PinFront:
+    case CMD_PinBack:
+      th = wimp_initialise (vsn, "PinShift", 0, &vsn);
+
+      message.size     = sizeof(message);
+      message.sender   = th;
+      message.my_ref   = NULL;
+      message.your_ref = NULL;
+      message.action   = (bits)0x400d1;  /* Message_ToggleBackdrop */
+
+      switch (number)
+      {
+        case CMD_PinToggle: message.data.reserved[0] = 0;  break;
+        case CMD_PinFront:  message.data.reserved[0] = 1;  break;
+        case CMD_PinBack:   message.data.reserved[0] = 2;  break;
+      }
+
+      wimp_send_message (wimp_USER_MESSAGE, &message, 0);
+
+      wimp_close_down (th);
+      break;
+
+    default:
+      MDTrace(1, "Unimplemented MiniDisc * command called");
+      break;
+  }
+
+
+  return NULL;
+}
+
+
+// remove temporay define.
+#undef message_action
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: module.c,v $
+   Revision 1.8  2004/04/14 14:44:05  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.7  2003/10/05 16:00:10  jtemple
+   General check-in for release testing.
+
+   Revision 1.6  2003/09/14 00:02:49  jtemple
+   Reinforced module finalisation code.
+
+   Revision 1.5  2003/08/10 16:38:28  uid1
+   testing cvs logging
+
+   Revision 1.4  2003/08/10 16:37:57  uid1
+   testing cvs logging
+
+   Revision 1.3  2003/08/10 16:36:30  uid1
+   added cvs tags & re-formatted comments
+
+
+--------------------------------------------------------------------------------
+*/

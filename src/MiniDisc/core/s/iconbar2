@@ -1,0 +1,120 @@
+; ------------------------------------------------------------------------------
+;
+;  $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/iconbar2.s,v $
+;
+;  $Revision: 1.2 $
+;  $Date: 2003/10/05 16:00:06 $
+;
+;  .
+;
+; ------------------------------------------------------------------------------
+
+        IMPORT  |Image$$RO$$Base|
+
+
+        EXPORT  Image__RO_Base
+        EXPORT  IconBar_HideIcon2
+	EXPORT	IconBar_RestoreIcon2
+
+
+        AREA    Code_Description, DATA
+Image__RO_Base:
+        DCD     |Image$$RO$$Base|
+
+
+        AREA    IconBar$$CodeArea, CODE
+
+
+; ------------------------------------------------------------------------------
+;   Procedure  : IconBar_HideIcon2
+;   Purpose    :
+;   Status     : Implementation (V1.0.0)
+;   V1.0.0     : 29/01/2000 - Preliminary implementation.
+;   Notes      :
+;   Params in  : r0 = Pointer to pointer to module name
+;   Params out : <none>
+; ------------------------------------------------------------------------------
+IconBar_HideIcon2:
+        stmfd   sp!, 	{lr}		; store link for return
+
+	ldr	r1,	[r0]		; r1 = Module name
+	mov	r0,	#18		; r0 = Reason code 18 (Lookup)
+	swi	&2001e			; SWI : OS_Module
+
+		; ... after OS_Module call ...
+		; r3 = module address
+		; r4 = copy of private word
+
+	ldr	r2,	[r3,#12]	; r2  = svc offset
+	add	r2,	r2,r3		; r2  = mod start + svc offset
+	str	r4,	pw_ptr		; ... store pw in memory
+	adr	r12,	pw_ptr		; r12 = pointer to copy of private word
+	mov	r1,	#&4f		; r1  = Service_xxxFiler
+	mov	lr, 	pc^		; ... store return ...
+	mov	pc, 	r2		; ... call service entry point ...
+
+        ldmfd   sp!, 	{pc}^		; Go home...
+
+
+; ------------------------------------------------------------------------------
+;   Procedure  : IconBar_RestoreIcon2
+;   Purpose    :
+;   Status     : Implementation (V1.0.0)
+;   V1.0.0     : 29/01/2000 - Preliminary implementation.
+;   Notes      :
+;   Params in  : r0 = Pointer to pointer to module name
+;                r1 = 'Filer' task handle
+;   Params out : <none>
+; ------------------------------------------------------------------------------
+IconBar_RestoreIcon2:
+        STMFD   sp!, 	{lr}		; push r1-r3 + link for return
+
+        STMFD   sp!,	{r1}		; push r1 (filer task handle)
+
+	ldr	r1,	[r0]		; Move module name into r1
+	MOV	r0,	#18		; 18 (Lookup)
+	SWI	&2001e			; Call OS_Module
+
+		; ... after OS_Module call ...
+		; r3 = module address
+		; r4 = copy of private word
+
+	STR	r4,	pw_ptr		; store pw in memory
+
+	LDR	r2,	[r3,#12]	;        r2 = svc offset
+	ADD	r2,	r2,r3		;        r2 = mod start + svc offset
+	adr	r12,	pw_ptr		;       r12 = pointer to pw
+
+        STMFD   sp!,	{r2}		; push   r2 = service code offset
+	MOV	r1,	#&27		;        r1 = Service_Reset
+	MOV	lr, 	pc^		; 			... store return ...
+	MOV	pc, 	r2		; 			... call service entry point ...
+	ldmfd	sp!,	{r2}		; pop   r2 = service code offset
+
+	ldmfd	sp!,	{r1}		; pop   r1 = filer task handle
+
+	mov	r0,	r1		;       r0 = 'Filer' task handle
+	mov	r1,	#&4b		;       r1 = Service_StartFiler
+	adr	r12,	pw_ptr		;      r12 = pointer to pw
+
+	MOV	lr, 	pc^		;			... store return ...
+	MOV	pc, 	r2		;			... call service entry point ...
+
+	TEQ	r1,	#0		; Service call claimed ?
+	SWIEQ	&600de			; Wimp_StartTask command supplied by module
+
+        LDMFD   sp!, 	{pc}^		; Go home...
+
+;
+; ------------------------------------------------------------------------------
+;
+;        AREA    Code$$WorkArea, DATA
+;        EXPORT  pw_ptr
+
+pw_ptr:
+	DCD	0
+
+
+; ------------------------------------------------------------------------------
+
+

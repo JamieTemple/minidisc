@@ -1,0 +1,758 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/ibmenu.cpp,v $
+
+   $Revision: 1.5 $
+   $Date: 2004/04/14 14:44:04 $
+
+   Main MiniDisc iconbar menu management code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/ModHdr.h"
+#include "minidisc/core/module.h"
+#include "minidisc/core/taskslice.h"
+
+#include "minidisc/core/shortcuts.h"
+
+#include "minidisc/modules/printer.h"
+#include "minidisc/modules/psion.h"
+#include "minidisc/modules/sharefs.h"
+#include "minidisc/modules/cdfs.h"
+#include "minidisc/modules/cdfs2.h"
+#include "minidisc/modules/resfs.h"
+#include "minidisc/modules/memfs.h"
+#include "minidisc/modules/idefs.h"
+#include "minidisc/modules/rmfs.h"
+#include "minidisc/modules/scsifs.h"
+#include "minidisc/modules/filecore.h"
+#include "minidisc/modules/armtcp.h"
+#include "minidisc/modules/hostfs.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Str.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Url.h"
+#include "DeskLib:WimpSWIs.h"
+#include "DeskLib:Window.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables
+--------------------------------------------------------------------------------
+*/
+window_handle  proginfo;
+proc_info      proceduresInfo[MaxMenuSize];
+int            DriveMenuSize,
+               infoVersionShown = 0;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ibMenu_Add
+   Purpose   : Append specific drives to the main MiniDisc menu
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 04/09/1999 - Update - Now correctly sizes memory allocations
+                            and copes with menu entries that do not have
+                            submenus. - Will also rule-off!!!!
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *ibMenu_Add (void *menuName, char *MenuText, char *ValidString, int hasSub, int ruleOff)
+{
+  menu_item *menuItem;
+  menu_ptr   aMenu = (menu_ptr)menuName;
+  char      *newText;
+  int        i;
+
+
+  db->fn_begin();
+
+
+  // Repalce the disc name
+  newText = MenuText;
+  for (i = 0; i < 16; i++)
+  {
+    if (MDCfg->aliases[i].fsn == NULL)  break;  // End of the line.
+
+    if (strcmp(MDCfg->aliases[i].fsn, MenuText) == 0)
+    {
+      newText = MDCfg->aliases[i].alias;
+      break;
+    }
+  }
+
+  // Start a menu if there isn't one already
+  if (aMenu == NULL)  aMenu = Menu_New    (d->task_name, hasSub == 0 ? "" : ">" "aMenuItem");
+  else                aMenu = Menu_Extend (aMenu,        hasSub == 0 ? "" : ">" "aMenuItem");
+
+  menuItem                  = MenuGet_Item(aMenu, DriveMenuSize);
+  menuItem->iconflags.value = 0x7000113;
+
+  // Set flags.
+  if (MenuText[0] == '!')  menuItem->menuflags.data.ticked = 1;
+  if (MenuText[0] == '~')  menuItem->iconflags.data.shaded = 1;
+
+  // no alias for menu entry
+  if (newText == MenuText)
+  {
+    if ((MenuText[0] == '!') || (MenuText[0] == '~'))  MenuText = MenuText + 1;
+    menuItem->icondata.indirecttext.buffer = strdup(MenuText);
+  }
+
+  // Using alias menu text
+  else
+    menuItem->icondata.indirecttext.buffer = strdup(newText);
+
+  menuItem->icondata.indirecttext.bufflen = strlen(menuItem->icondata.indirecttext.buffer) + 1;
+
+  menuItem->icondata.indirecttext.validstring = strdup(ValidString);
+
+  menuItem->menuflags.data.writable  = 0;
+  menuItem->menuflags.data.dotted    = ruleOff;
+  menuItem->menuflags.data.notifysub = hasSub;
+  menuItem->submenu.value            = hasSub;
+
+  Menu_ReviseWidth(aMenu);
+
+  db->fn_end();
+
+
+  return (void *)aMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuHelp
+   Purpose   : 'Help' option clicked upon in main menu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 21/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void MenuHelp (char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  Wimp_StartTask("Filer_Run <MiniDisc$Dir>.!Help");
+
+  UNUSED(fsn_desc);
+  UNUSED(drivenum);
+  UNUSED(event);
+  UNUSED(mevent);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuSetup
+   Purpose   : 'Choices...' option clicked upon in main menu.
+   Status    : Implementation (V2.0.0)
+   V2.0.0    : 01/04/2002 - Update - Now calls the external setup app.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void MenuSetup (char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  Wimp_StartTask("Filer_Run <MiniDisc$Dir>.!MDSetup");
+
+  UNUSED(fsn_desc);
+  UNUSED(drivenum);
+  UNUSED(event);
+  UNUSED(mevent);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuQuit
+   Purpose   : 'Quit' on the main menu clicked upon, so exit.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void MenuQuit (char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  d->quit = TRUE;
+
+  UNUSED(fsn_desc);
+  UNUSED(drivenum);
+  UNUSED(event);
+  UNUSED(mevent);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuSubFollow
+   Purpose   : Highest MenuWarning message handler.  Displatches to a
+               filing-system specific handler.  (May be FileCore_Generic).
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL MenuSubFollow (event_pollblock *event, void *reference)
+{
+  void (*aProcedure)(char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+
+
+  /* Find the address of the procedure for the menu item */
+  aProcedure = proceduresInfo[event->data.message.data.menuwarn.selection[0]].proc_ptr;
+
+  /* Call procedure as a click */
+  if (aProcedure != NULL)
+    (*aProcedure)(proceduresInfo[event->data.message.data.menuwarn.selection[0]].fsn_desc,
+                  proceduresInfo[event->data.message.data.menuwarn.selection[0]].drivenum,
+                  (void *)event, follow);
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuChoice
+   Purpose   : Menu selection procedure dispatcher
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 27/02/2000 - Update - Now also dumps menus.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL MenuChoice(event_pollblock *event, void *reference)
+{
+  void         (*aProcedure)(char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+  mouse_block  ptr;
+
+
+  /* Find the address of the procedure for the menu item */
+  aProcedure = proceduresInfo[event->data.selection[0]].proc_ptr;
+
+  /* Call procedure as a click */
+  if (aProcedure != NULL)  (*aProcedure)(proceduresInfo[event->data.selection[0]].fsn_desc,
+                                         proceduresInfo[event->data.selection[0]].drivenum,
+                                         (void *)event, click);
+
+  /* Redisplay the menu if required */
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) Menu_ShowLast ();
+  else
+  {
+    MenuDump         (mainmenu);
+    Event_Release    (event_MENU, event_ANY, event_ANY, MenuChoice, NULL);
+    EventMsg_Release (message_MENUWARNING, (window_handle) menu_currentopen, MenuSubFollow);
+  }
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenusDeleted
+   Purpose   : The WIMP just informed us that one of our menus is missing!
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL MenusDeleted (event_pollblock *event, void *reference)
+{
+  MenuDump ((menu_ptr)(event->data.message.data.words[0]));
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : goWebSite
+   Purpose   : Evoke URI with my website address.         
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL goWebSite (event_pollblock *event, void *reference)
+{
+  if (Msgs_Lookup ("app.website", MD_tmp, buffer_size))
+    Url_Launch (MD_tmp, NULL, NULL);
+
+  UNUSED(event);
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : emailAuthor
+   Purpose   : Try to launch a mail program to email support@minidisc...
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL emailAuthor (event_pollblock *event, void *reference)
+{
+  Msgs_Lookup ("app.emailme", MD_tmp, buffer_size);
+  Url_Launch  (MD_tmp, NULL, NULL);
+
+  UNUSED(event);
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : appDetails
+   Purpose   : Toggles the information shown in the 'Info' dialog box.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 01/09/2002 - Bugfix - Now shows version correctly if there is
+                                     no additional build information.
+   V1.0.0    : 08/09/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL appDetails (event_pollblock *event, void *reference)
+{
+  char *RM_HelpStr = (char *)(((int)Image__RO_Base) + *(int *)(((int)Image__RO_Base) + 0x0014)),
+       *RM_Build;
+  char  RM_Buffer[256];
+  int   i;
+
+
+  switch (infoVersionShown)
+  {
+    case 0:
+      sprintf (Icon_GetTextPtr (proginfo, 3), "Linked: %s - %s", __DATE__, __TIME__);
+      infoVersionShown++;
+      break;
+
+    case 1:
+      strcpy (Icon_GetTextPtr (proginfo, 3),
+#if   defined MDBuild_Dist
+        "Distribution build"
+#elif defined MDBuild_Debug
+        "Debugging build"
+#elif defined MDBuild_DDT
+        "DDT build"
+#elif defined MDBuild_Dev
+        "Development build"
+#else
+        "UNKNOWN"
+#endif
+      );
+      infoVersionShown++;
+      break;
+
+    default:  // Includes infoVersionShown = 2
+      for (i = 0; RM_HelpStr[i] != 0x09; i++);
+      RM_HelpStr = RM_HelpStr + i + 1;
+      strcpy(RM_Buffer, RM_HelpStr);
+
+      for (i = 0; RM_Buffer[i] != ')'; i++);  /* Locate end of 'standard' version + date info */
+      RM_Buffer[i+1] = 0;                     /* Flag the end of standard info.               */
+      RM_Build = RM_Buffer + i + 2;           /* Flag the start of any extra build info.      */
+      for (; RM_Buffer[i] != '©'; i++);       /* Locate the start of the author info.         */
+      RM_Buffer[i-1] = 0;                     /* Flag the end of the extra build info.        */
+
+      if (RM_Buffer + i - 1 <= RM_Build)
+        sprintf(Icon_GetTextPtr (proginfo, 3), "%s (%s)", Module_VersionString, Module_Date);
+      else
+        sprintf(Icon_GetTextPtr (proginfo, 3), "%s %s (%s)",
+                Module_VersionString, RM_Build, Module_Date);
+
+      infoVersionShown = 0;
+      break;
+  }
+
+  Icon_ForceRedraw(proginfo, 3);
+
+  UNUSED(event);
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ibMenu_Init
+   Purpose   : Create windows, initialise stuctures for the main MiniDisc menu
+   Status    : Implementation (V1.1.3)
+   V1.1.3    : 01/09/2002 - Bugfix - Now shows version correctly if there is
+                                     no additional build information.
+   V1.1.2    : 03/05/2001 - Update - Now uses CV5 cmhg-generated module
+                                     headder data, rather than peeking it out.
+   V1.1.1    : 21/04/2001 - Update - Added some extra data in the info dialog.
+   V1.1.0    : 23/01/2000 - Update - Now uses module header to get program
+                                     version & author information.
+   V1.0.1    : 13/09/1999 - Update - Added a Help button handler.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : Called once, when app starts. - Should also build any other
+               windows here. (CDFS?) - Maybe we should have another
+               dispatching routine in the init code.
+--------------------------------------------------------------------------------
+*/
+void ibMenu_Init (void)
+{
+  char *RM_HelpStr = (char *)(((int)Image__RO_Base) + *(int *)(((int)Image__RO_Base) + 0x0014)),
+       *RM_Author,
+       *RM_Build;
+  char  RM_Buffer[256];
+  int   i;
+
+
+  db->fn_begin();
+
+  db->trace(100, "Initialising...");
+
+  TaskSlice_SplashWrite ("splash.minit");
+
+  /* Reset all menu procedure pointers. */
+  for (i = 0; i < MaxMenuSize; i++)
+  {
+    proceduresInfo[i].proc_ptr    = NULL;
+    proceduresInfo[i].fsn_desc[0] = NULL;
+    proceduresInfo[i].drivenum    = 0;
+  }
+
+  /* Create 'info' window */
+  proginfo = Window_Create("Info", 0);
+
+  /* Locate & isolate program information from the Module header. */
+  for (i = 0; RM_HelpStr[i] != 0x09; i++);
+  RM_HelpStr = RM_HelpStr + i + 1;
+  strcpy(RM_Buffer, RM_HelpStr);
+
+  for (i = 0; RM_Buffer[i] != ')'; i++);  /* Locate end of 'standard' version + date info */
+  RM_Buffer[i+1] = 0;                     /* Flag the end of standard info.               */
+  RM_Build = RM_Buffer + i + 2;           /* Flag the start of any extra build info.      */
+  for (; RM_Buffer[i] != '©'; i++);       /* Locate the start of the author info.         */
+  RM_Buffer[i-1] = 0;                     /* Flag the end of the extra build info.        */
+  RM_Author      = RM_Buffer + i + 2;     /* Flag author name start.                      */
+
+  /* Populate fields */
+  strcpy      (Icon_GetTextPtr (proginfo, 0), Module_Title);
+  Msgs_Lookup ("app.purpose", Icon_GetTextPtr (proginfo, 1), 32);
+  sprintf     (Icon_GetTextPtr (proginfo, 2), "© %s", RM_Author);
+
+  if (RM_Buffer + i - 1 <= RM_Build)
+    sprintf(Icon_GetTextPtr (proginfo, 3), "%s (%s)", Module_VersionString, Module_Date);
+  else
+    sprintf(Icon_GetTextPtr (proginfo, 3), "%s %s (%s)", Module_VersionString,RM_Build,Module_Date);
+
+  Msgs_Lookup ("app.licence", Icon_GetTextPtr (proginfo, 8),  32);
+
+  /* Set up event handlers for the buttons */
+  Event_Claim (event_CLICK, proginfo, 0, goWebSite,   NULL);
+  Event_Claim (event_CLICK, proginfo, 2, emailAuthor, NULL);
+  Event_Claim (event_CLICK, proginfo, 3, appDetails,  NULL);
+
+  /* Create CDFS dialogs... */
+  mddlg_cdfs_cfg = Dialog2_CreateDialogBlock ("CDConfig", CDFSCDialog_OK, CDFSCDialog_Cancel,
+                                              CDFS2_OpenCfg, CDFS2_OKCfg, NULL);
+  mddlg_cdfs_vol = Dialog2_CreateDialogBlock ("CDVolume", CDFSVDialog_OK, CDFSVDialog_Cancel,
+                                              CDFS2_OpenVol, CDFS2_OKVol, NULL);
+
+  /* Ensure that we're informed if our menus disappear. */
+  EventMsg_Claim(message_MENUSDELETED, event_ANY, MenusDeleted, NULL);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ibMenu_Show
+   Purpose   : Main routine for building the IconBar menu.
+   Status    : Implementation (V1.0.5)
+   V1.0.5    : 28/01/2000 - Update - Now uses FSN exclusions lists.
+   V1.0.4    : 11/12/1999 - Update - Now fully supports empty menus.
+   V1.0.3    : 09/11/1999 - Update - Ensure that we don't try & use the
+                                     standard filecore routines on RMFS.
+   V1.0.2    : 09/10/1999 - Update - Now handles network drives.
+   V1.0.1    : 04/09/1999 - Update - Now also includes links to code to handle
+                                     both printing and Psions.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ibMenu_Show (int xpos)
+{
+  void             (*aProcedure)(char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+  _kernel_swi_regs  regs,
+                    regs2;
+  char              menudef[260],
+                    aString[200];
+  BOOL              altPressed,
+                    discsOnly,
+                    ignoreMe;
+  int               i;
+
+
+  db->fn_begin();
+
+  altPressed = XUtil_KeyPressed(-3);
+  mainmenu   = NULL;  /* Initialise our main menu */
+
+  if (MDCfg->misc.discsOnly == 0) discsOnly = TRUE;
+  else                            discsOnly = FALSE;
+
+
+  db->trace (100, "Starting main MD menu build...");
+
+  if (!discsOnly || (discsOnly && altPressed))
+  {
+    /* Build the menu for the icon bar icon */
+    db->trace (100, "Displaying 'top' menu items");
+    Msgs_Lookup ("menu.maintop", menudef, 260);
+    mainmenu = Menu_New(d->task_name, menudef);
+    Menu_AddSubMenu (mainmenu, 0, (menu_ptr) proginfo);
+
+    DriveMenuSize              = 2;
+    proceduresInfo[0].proc_ptr = NULL; /* No procedure associated with 'Info' */
+    aProcedure                 = MenuHelp;
+    proceduresInfo[1].proc_ptr = aProcedure;
+    aProcedure                 = MenuSetup;
+    proceduresInfo[2].proc_ptr = aProcedure;
+
+    /* Rule-off after 'Help' and 'Setup' */
+    MenuGet_Item(mainmenu, DriveMenuSize)->menuflags.data.dotted = 1;
+  }
+  else  /* Initialise menu for no 'Info/Help/Choices' options */
+  {
+    db->trace (100, "Discs only");
+    DriveMenuSize = -1;
+    mainmenu = NULL;
+  }
+
+  /* Shortcuts handling code (top only) */
+  if (MDCfg->shortcut.inMenu == 0 && MDCfg->shortcut.menuPos == 0)
+    mainmenu = (menu_ptr)Shortcuts_List ((void *)mainmenu);
+
+  /* ArmTCP handling code */
+  if (MDCfg->network.armTCPInMenu == 0) mainmenu = (menu_ptr)ArmTCP_BuildMainMenu ((void*)mainmenu);
+
+  /* Printer handling code */
+  if (MDCfg->printer.inMenu == 0)       mainmenu = (menu_ptr)Printer_ListDrivers  ((void*)mainmenu);
+
+  /* ---- Psion ---- */
+  if (MDCfg->psion.inMenu == 0)         mainmenu = (menu_ptr)Psion_ListDrives     ((void*)mainmenu);
+
+  /* ---- Network drives ---- */
+  /* NOTE: This is only support for ShareFS at the moment. */
+  if (MDCfg->network.shareInMenu == 0)  mainmenu = (menu_ptr)ShareFS_ListDrives   ((void*)mainmenu);
+
+  /* ---- ResourceFS ---- */
+  if (MDCfg->image.resFSinMenu == 0)    mainmenu = (menu_ptr)RESFS_ListDrives     ((void*)mainmenu);
+
+  /* ---- MemFS ---- */
+  if (MDCfg->image.memFSinMenu == 0)    mainmenu = (menu_ptr)MEMFS_ListDrives     ((void*)mainmenu);
+
+  /* ---- CDFS ---- */
+  if (MDCfg->cdfs.inMenu == 0)          mainmenu = (menu_ptr)CDFS_ListDrives      ((void*)mainmenu);
+
+  /* ---- HostFS ---- */
+  mainmenu = (menu_ptr)HostFS_ListDrives((void*)mainmenu);
+
+  /* ---- FileCore FSNs ---- */
+  if (MDCfg->filecore.inMenu == 0)
+  {
+    regs.r[0] = 18; /* Lookup */
+    regs.r[1] = (int)"FileCore%Base";
+    (void) _kernel_swi(SWI_OS_Module, &regs, &regs);
+
+    regs.r[0] = 12; /* Enumerate */
+    regs.r[2] = 0;
+    (void) _kernel_swi(SWI_OS_Module, &regs, &regs);
+    while (regs.r[2] != 0)
+    {
+      sprintf(aString,"%s:", (char *)regs.r[5]);
+      regs2.r[0] = 11; /* Set temporary FS */
+      regs2.r[1] = (int) aString;
+      (void) _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+      regs2.r[0] = 20; /* Read FS location */
+      (void) _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+      regs2.r[8] = regs2.r[2];
+      (void) _kernel_swi(SWI_FileCore_Drives, &regs2, &regs2);
+      regs2.r[0] = 19; /* Restore current FS */
+      (void) _kernel_swi(SWI_OS_FSControl, &regs2, &regs2);
+
+      /* Check ignores list */
+      aString[strlen(aString)-1] = 0;  /* Remove ':' */
+      ignoreMe                   = FALSE;
+      for (i = 0; i < 16; i++)
+      {
+        if (strncmp(d->ignoreFSNs[i], aString, strlen(d->ignoreFSNs[i])) == 0 &&
+          d->ignoreFSNs[i][0] != 0)  ignoreMe = TRUE;
+      }
+      aString[strlen(aString)] = ':';  /* Restore ':' */
+
+      if (!ignoreMe)
+      {
+             if (strcmp(aString, "IDEFS:") == 0)
+         mainmenu = (menu_ptr)IDEFS_ListDrives(aString, regs2.r[2], regs2.r[1], (void *)mainmenu);
+
+        else if (strcmp(aString, "RMFS:") == 0)
+          mainmenu = (menu_ptr)RMFS_ListDrives(aString, regs2.r[2], regs2.r[1], (void *)mainmenu);
+
+        else if (strcmp(aString, "SCSI:") == 0)
+          mainmenu = (menu_ptr)SCSIFS_ListDrives(aString, regs2.r[2], regs2.r[1], (void *)mainmenu);
+
+        else
+          mainmenu = (menu_ptr)FileCore_ListDrives(aString,regs2.r[2],regs2.r[1],(void *)mainmenu);
+      }
+      (void) _kernel_swi(SWI_OS_Module, &regs, &regs);  /* Keep enumerating... */
+    }
+  }
+
+  /* Shortcuts handling code (bottom only) */
+  if (MDCfg->shortcut.inMenu == 0 && MDCfg->shortcut.menuPos == 1)
+  {
+    if (mainmenu != NULL) MenuGet_Item(mainmenu, DriveMenuSize)->menuflags.data.dotted = 1;
+    mainmenu = (menu_ptr)Shortcuts_List ((void *)mainmenu);
+  }
+
+  if (!discsOnly || (discsOnly && altPressed))
+  {
+    /* Rule-off after last drive */
+    MenuGet_Item(mainmenu, DriveMenuSize)->menuflags.data.dotted = 1;
+
+    /* ... finally, append the bottom of our menu. */
+    DriveMenuSize++;
+    Msgs_Lookup ("menu.mainbot", menudef, 260);
+    mainmenu = Menu_Extend(mainmenu, menudef);
+
+    aProcedure = MenuQuit;
+    proceduresInfo[DriveMenuSize].proc_ptr = aProcedure;
+  }
+
+  if (mainmenu != NULL)  /* Ensure there is no spare divider on the bottom of the menu. */
+    MenuGet_Item(mainmenu, DriveMenuSize)->menuflags.data.dotted = 0;
+  else
+  {
+    Msgs_Lookup ("menu.maintop", menudef, 260);
+    mainmenu = Menu_New(d->task_name, menudef);
+    Menu_AddSubMenu (mainmenu, 0, (menu_ptr) proginfo);
+    Msgs_Lookup ("menu.mainbot", menudef, 260);
+    mainmenu = Menu_Extend(mainmenu, menudef);
+    MenuGet_Item(mainmenu, 2)->menuflags.data.dotted = 1;
+    DriveMenuSize              = 3;
+    proceduresInfo[0].proc_ptr = NULL;
+    proceduresInfo[1].proc_ptr = MenuHelp;
+    proceduresInfo[2].proc_ptr = MenuSetup;
+    proceduresInfo[3].proc_ptr = MenuQuit;
+  }
+
+  /* Update the application menu detail block. */
+  db->trace (100, "Updating menu context details...");
+  d->currentMenu.menuptr             = (int)mainmenu;
+  d->currentMenu.type                = MD_menu_main;
+  d->currentMenu.context.controlOpen = FALSE;  /* This should really be set elsewhere */
+
+  /* Define some menu event handler */
+  db->trace (100, "Attaching events to main menu...");
+  Event_Claim    (event_MENU, event_ANY, event_ANY, MenuChoice, NULL);
+  EventMsg_Claim (message_MENUWARNING, (window_handle) mainmenu, MenuSubFollow, NULL);
+
+  /* ... Then show it! */
+  db->trace (100, "About to show main MD menu");
+
+  Menu_Show(mainmenu, xpos, -1);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: ibmenu.cpp,v $
+   Revision 1.5  2004/04/14 14:44:04  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.4  2003/10/05 16:00:04  jtemple
+   General check-in for release testing.
+
+   Revision 1.3  2003/09/14 11:15:32  jtemple
+   Replaced Mem_ functions with malloc/free.
+
+   Revision 1.2  2003/08/12 22:30:48  jtemple
+   cvs tag info removed.  Also code comments tidied.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

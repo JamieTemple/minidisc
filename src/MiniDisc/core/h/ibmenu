@@ -1,0 +1,69 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/ibmenu.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:04 $
+
+   Main MiniDisc iconbar menu management code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef MDH_IBMENU
+#define MDH_IBMENU
+
+
+#include "shared/global.h"
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global variables.
+--------------------------------------------------------------------------------
+*/
+extern proc_info proceduresInfo[MaxMenuSize];
+extern int       DriveMenuSize;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern BOOL  ibMenu_Show (int xpos);
+extern void  ibMenu_Init (void);
+extern void *ibMenu_Add  (void *menuName, char *MenuText, char *ValidString, int hasSub,                                      int ruleOff);
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // MDH_IBMENU
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: ibmenu.h,v $
+   Revision 1.2  2003/10/05 16:00:04  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

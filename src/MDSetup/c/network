@@ -1,0 +1,57 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/network.c                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/network.h"
+
+#include "DeskLib:Icon.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_Network                                                  *
+ * Purpose   : Populate the 'Network' options pane.                            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 09/10/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_Network(void)
+{
+  Icon_SetSelect(prefspane, OW_net_SHAREINC,  !tempCfg.network.shareInMenu);
+  Icon_SetSelect(prefspane, OW_net_SHAREINT,  !tempCfg.network.shareInTbar);
+  Icon_SetSelect(prefspane, OW_net_SHAREREM,  !tempCfg.network.shareNoIcons);
+  Icon_SetSelect(prefspane, OW_net_SHARESLOC, !tempCfg.network.shareHideLocal);
+
+  Icon_SetSelect(prefspane, OW_net_ARMTCPINC, !tempCfg.network.armTCPInMenu);
+  Icon_SetSelect(prefspane, OW_net_ARMTCPINT, !tempCfg.network.armTCPInTbar);
+  Icon_SetSelect(prefspane, OW_net_ARMTCPREM, !tempCfg.network.armTCPNoIcons);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_Network                                                 *
+ * Purpose   : Record options from the Network pane before closing.            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 09/10/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_Network(void)
+{
+  tempCfg.network.shareInMenu    = !Icon_GetSelect(prefspane, OW_net_SHAREINC);
+  tempCfg.network.shareInTbar    = !Icon_GetSelect(prefspane, OW_net_SHAREINT);
+  tempCfg.network.shareNoIcons   = !Icon_GetSelect(prefspane, OW_net_SHAREREM);
+  tempCfg.network.shareHideLocal = !Icon_GetSelect(prefspane, OW_net_SHARESLOC);
+
+  tempCfg.network.armTCPInMenu   = !Icon_GetSelect(prefspane, OW_net_ARMTCPINC);
+  tempCfg.network.armTCPInTbar   = !Icon_GetSelect(prefspane, OW_net_ARMTCPINT);
+  tempCfg.network.armTCPNoIcons  = !Icon_GetSelect(prefspane, OW_net_ARMTCPREM);
+}
+
+

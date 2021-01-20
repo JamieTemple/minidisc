@@ -1,0 +1,342 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/shortcuts.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:01:04 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef __SHARED_SHORTCUTS_H
+#define __SHARED_SHORTCUTS_H
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : maximumNumberOfShortcuts
+   Purpose   : Number of shortcuts menus array size
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 16/12/2001 - Update - Expanded limit from 100 to 256.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define maximumNumberOfShortcuts 256
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : menuNameLength
+   Purpose   : Size of char array for shortcuts menu names.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 23/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define menuNameLength 20
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerate : MD_sprite_type
+   Purpose   : Shortcuts menu item sprite descriptor.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  MDSprite_none    = 0,
+  MDSprite_default,
+  MDSprite_custom
+} MD_sprite_type;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerate : MD_event_type
+   Purpose   : Shortcuts / menus associated event type.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  none = 0,
+  keyboard,
+  wimp
+} MD_event_type;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerate : entry_type
+   Purpose   : Available shortcuts types.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  file = 0,
+  url,
+  path,
+  menu,
+  command
+} entry_type;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : command_info
+   Purpose   : 'Command' shortcut description.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char *label;
+  char *command;
+} command_info;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : menu_info
+   Purpose   : 'Menu' shortcut description.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char *label;
+  char *intMenuName;
+  int   child;
+} menu_info;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : file_info
+   Purpose   : 'File' shortcut description.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char *label;
+  char *fileName;
+} file_info;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : url_info
+   Purpose   : 'URL' shortcut description.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 30/09/2000 - Dynamic memory reallocation redesign.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char *label;
+  char *address;
+} url_info;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : path_info
+   Purpose   : 'Path' shortcut description.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 30/09/2000 - Dynamic memory reallocation redesign.
+   V1.0.1    : 14/02/2000 - Update - Added booleans.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char *label;
+  char *pathName;
+  int   allowInApps;  /* boolean */
+  int   hidePling;    /* boolean */
+} path_info;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : keyboard_event
+   Purpose   : Description of a keyboard event for attaching to menus.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int value;
+} keyboard_event;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : wimp_event
+   Purpose   : Description of a WIMP event for attaching to menus.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int value;
+} wimp_event;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : shortcuts_menu
+   Purpose   : Shortcuts menu entry types.
+   Status    : Implementation (V1.2.1)
+   V1.2.1    : 06/10/2002 - Update - Added some future-proofing variables.
+   V1.2.0    : 13/02/2000 - Update - Added event handler union & e-type.
+   V1.1.1    : 12/02/2000 - Update - Slight tidy.
+   V1.1.0    : 08/12/1999 - Update - No longer uses 'parent' pointers to allow
+                                     improved memory management code.
+   V1.0.3    : 24/11/1999 - Update - Added some early support for rule-offs.
+   V1.0.2    : 06/11/1999 - Update - Removed the 'App' bits.
+   V1.0.1    : 23/09/1999 - Update - Now includes the 'command' structure.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct shortcuts_menu
+{
+  struct shortcuts_menu *next;      // Pointer to next shortcut in this menu.
+
+  int                    position,  // (?)
+                         ruledOff,  // boolean
+                         shaded,    // boolean
+                         ticked;    // boolean
+
+  MD_sprite_type         s_type;    // Describes the sort of sprite to use for this entry.
+  char                  *s_name;    // The custom sprite name.
+
+  MD_event_type          e_type;    // The event that causes this schortcut to be executed
+
+  union
+  {
+    int                 *data;      // (?)
+    keyboard_event       keyboard;  // Describes the keyboard event filter
+    wimp_event           wimp;      // Describes the wimp event filter
+  } event;
+
+  entry_type             entry;     // Describes what sort of Shortcut menu entry this is.
+
+  union
+  {
+    file_info            file;      // Open a file / Dir / App Shortcut description.
+    url_info             url;       // Launch a URL Shortcut description.
+    path_info            path;      // Directory path submenu Shortcut description.
+    menu_info            menu;      // Open a Shortcuts menu Shortcut description.
+    command_info         command;   // Execute a command Shortcut description.
+  } shortcut;
+
+} shortcuts_menu;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : shortcuts_menu_head
+   Purpose   : Shortcuts menu entry types.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 12/02/2000 - Update - Now includes a structure to handle events
+   V1.0.0    : 12/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  shortcuts_menu *first;
+  char            menuName[menuNameLength];
+  MD_event_type   e_type;
+
+  union
+  {
+    int            *data;
+    keyboard_event  keyboard;
+    wimp_event      wimp;
+  } event;
+
+} shortcuts_menu_head;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void Shortcuts_Save (char *filename);
+extern void Shortcuts_Load (char *filename);
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: shortcuts.h,v $
+   Revision 1.2  2003/10/05 16:01:04  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

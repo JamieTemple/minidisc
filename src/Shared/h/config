@@ -1,0 +1,342 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/config.h,v $
+
+   $Revision: 1.1 $
+   $Date: 2004/04/17 14:57:06 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_CONFIG
+#define MDH_CONFIG
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : iconbar_config
+   Purpose   : Iconbar configuration options
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 30/01/2000 - Update - Now accomodates all iconbar actions.
+   V1.0.0    : 08/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char *select[8];     // Action to perform when 'Select' clicked on iconbar icon
+  int   selectType[8]; // Select clicks action type
+  char *adjust[8];     // Action to perform when 'Adjust' clicked on iconbar icon
+  int   adjustType[8]; // Adjust clicks action type
+  int   iconType;      // 0,1,2,3,4
+  char *userDefined;   // User defined iconbar icon text pointer
+  int   dragAction[8]; // Action performed on files dragged to iconbar icon (0-3)
+  char *dragDir[8];    // Directory used for iconbar drag actions.
+} iconbar_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : misc_config
+   Purpose   : Misc configuration options
+   Status    : Implementation (V1.0.5)
+   V1.0.5    : 05/06/2002 - Update - Added 'use custom icons' option.
+   V1.0.4    : 08/04/2002 - Update - Added RAM disc shutdown confirmation flag
+   V1.0.3    : 03/11/2001 - Update - Removed Startup / Exit scripts.
+   V1.0.2    : 01/11/2001 - Update - Added scanDevices.
+   V1.0.1    : 14/02/2000 - Update - Added 'allowInApps' & 'hidePling'.
+   V1.0.0    : 08/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int   discsOnly;    // boolean
+  int   hideControl;  // boolean
+  int   bootApps;     // 0,1,2
+  int   quickBoot;    // boolean
+  int   noSplash;     // boolean
+  int   allowInApps;  // boolean
+  int   hidePling;    // boolean
+  int   scanDevices;  // boolean
+  int   ramConfirm;   // boolean
+  int   useCustom;    // boolean
+} misc_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : filecore_config
+   Purpose   : Filecore configuration options
+   Status    : Implementation (V1.0.3)
+   v1.0.3    : 14/09/2002 - Update - Added 'dailySavesDir' flag and integrated
+                                     the 'FilerApps' structure.
+   V1.0.2    : 11/03/2002 - Update - Added 'ignorePublic' flag.
+   V1.0.1    : 11/12/1999 - Update - Now includes 'inMenu' option.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int         inMenu;
+  int         removeIcons;
+  int         inTbar;
+  int         greyEmpty;
+  int         hideIDEFS;
+  int         ignorePublic;
+  int         dailySaveDirs;
+  char        tempDirNameFormat[20];
+  struct
+  {
+    char      fsn_name[8];
+    int       drives;
+    int       verify;
+    char      command[256];
+  } apps[16];
+} filecore_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : imagefs_config
+   Purpose   : Image filing system options
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int  resFSinMenu;
+  int  resFSremoveIcon;
+  int  resFSopenApps;
+  int  resFSinTbar;
+  int  memFSinMenu;
+  int  memFSremoveIcon;
+  int  memFSinTbar;
+} imagefs_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : cdfs_config
+   Purpose   : CDFS options
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 19/02/2000 - Update - Added 'player' path option.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int   inMenu;
+  int   removeIcons;
+  int   inTbar;
+  int   autoDetect;
+  char *playerPath;
+  int   cdromfs;
+} cdfs_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : psion_config
+   Purpose   : Psion options
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 19/02/2000 - Update - Added 'addPath'.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int   inMenu;
+  int   autoConnect;
+  int   inTbar;
+  char *appPath;
+  /* PsiRiscFS Options... */
+  int   rawDrives;
+  int   driver;
+} psion_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : printer_config
+   Purpose   : Printer driver options
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 11/09/1999 - Added 'Quit Printer Manager' option.
+   V1.0.0    : 04/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int  inMenu;
+  int  QuitPM;
+} printer_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : shortcut_config
+   Purpose   : Shortcuts options
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 15/05/2001 - Update - Added pinboard filter options.
+   V1.0.1    : 24/11/1999 - Update - Now has the 'quickDrag' option for new
+                            shortcuts dialog suppression.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int   inMenu;
+  int   menuPos;
+  int   quickDrag;
+  int   catchPinClicks;
+  char *shortcutMenu;
+} shortcut_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : network_config
+   Purpose   : Network drives options
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int  shareInMenu;
+  int  shareNoIcons;
+  int  shareInTbar;
+  int  shareHideLocal;     // Do not show local shares under ShareFS
+  int  shareOneEntry;      // Only show one icon in the menu / toolbar
+
+  int  armTCPInMenu;
+  int  armTCPNoIcons;
+  int  armTCPInTbar;
+} network_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : filters_config
+   Purpose   : Filters options
+   Status    : Implementation (V1.0.3)
+   V1.0.3    : 13/08/2003 - Update - Replaced the 'pcDelete' flag with 'filerOpen'
+                                     as the old code had been removed, and we
+                                     didn't have anywhere to store the new option.
+   V1.0.2    : 22/12/2002 - Added DoubleTake flag.
+   V1.0.1    : 15/05/2002 - Added support for Pinboard drag-to save filter.
+   V1.0.0    : 18/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int  winTitle;
+  int  pinSave;
+  int  doubleTake;
+  int  filerOpen;
+  int  taskSwitcher;
+} filters_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : toolbar_config
+   Purpose   : Toolbar options
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 01/07/2002 - Update - Added big buttons flag.
+   V1.0.0    : 26/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int   enabled;
+  int   displayPos;
+  int   hideWhen;
+  int   showTips;
+  int   bigButtons;
+  int   spacing;
+  int   gapSize;
+  int   align;
+  int   orientation;
+  char *includeMenu;
+} toolbar_config;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : app_config
+   Purpose   : Main application configuration (container) structure.
+   Status    : Implementation (V1.0.6)
+   V1.0.6    : 14/09/2002 - Update - Integrated the 'app_icons' structure.
+   V1.0.5    : 04/06/2002 - Update - Added app_icons structure.
+   V1.0.4    : 22/03/2002 - Update - Added a pointer to the 'ignoreFSNs' array
+   V1.0.3    : 08/01/2000 - Update - Added 'iconbar' & 'misc' structures.
+   V1.0.2    : 18/09/1999 - Update - Now includes the Shortcuts structure.
+   V1.0.1    : 04/09/1999 - Update - Now includes the Printer Driver structure
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  iconbar_config   iconbar;
+  misc_config      misc;
+  filecore_config  filecore;
+  imagefs_config   image;
+  cdfs_config      cdfs;
+  psion_config     psion;
+  printer_config   printer;
+  shortcut_config  shortcut;
+  network_config   network;
+  filters_config   filters;
+  toolbar_config   toolbar;
+  char            *ignoreFSNs;
+
+  struct
+  {
+    char *fsn,
+         *alias;
+  } aliases[16];
+
+  struct
+  {
+    char           device[21];
+    char           sprite[11];
+  } icons[20];
+
+} app_config;
+
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: config.h,v $
+   Revision 1.1  2004/04/17 14:57:06  jtemple
+   Added task switcher option support.
+   Separated out configuration options into separate file for convenience.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

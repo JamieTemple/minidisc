@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <string.h>
+#include "kernel.h"
+
+
+int main(void)
+{
+  _kernel_swi_regs r;
+  int              buffer[4];
+  char             taskName[32];
+  int              i;
+
+
+  printf("  Handle   WSlot App TaskName\n---------------------------------------------\n");
+  r.r[0] = 0;  /* first call */
+  do
+  {
+    r.r[1] = (int) buffer;
+    r.r[2] = sizeof(buffer);
+    _kernel_swi(0x042681, &r, &r);
+    if (r.r[0] >= 0)
+    {
+      strncpy(taskName, (char *)buffer[1], 32);
+      for (i = 0; i < 32; i++)  if (taskName[i] < ' ') taskName[i] = 0;
+      printf("0x%08x ", buffer[0]);
+      if (buffer[3]&1 == 1)  printf(" RMA  [M] %s\n", taskName);
+      else                   printf("%04dK [A] %s\n", buffer[2] / 1024, taskName);
+    }
+  } while (r.r[0] >= 0);
+
+  return 1;
+}

@@ -1,0 +1,141 @@
+
+#include <stdio.h>
+#include <string.h>
+
+#include "Shared/Global.h"
+#include "Shared/shortcuts.h"
+
+
+#define NEWLINE  10
+
+
+shortcuts_menu_head shortcutsArray[maximumNumberOfShortcuts];
+
+int  menuCount;
+
+
+int readLine(FILE *aFile, char *buffer)
+{
+  int charsRead,
+      aChar = 0;
+
+
+  for (charsRead = 0; aChar != NEWLINE && !feof(aFile); charsRead++)
+  {
+    aChar             = fgetc(aFile);
+    buffer[charsRead] = aChar;
+  }
+
+  buffer[charsRead - 1] = 0;
+
+
+  return charsRead - 1;
+}
+
+
+char *findNameStart(char *aBuffer)
+{
+  int i;
+
+
+  for (i = strlen(aBuffer); aBuffer[i] != '.'; i--);
+
+
+  return aBuffer + i + 1;
+}
+
+
+void getMenus(FILE *aFile, char *menuName)
+{
+  shortcuts_menu_head  *menuPtr;
+  shortcuts_menu      **itemPtr;
+  int                   x,
+                        itemCount;
+  char                  aBuffer[256];
+  char                 *namePtr;
+
+
+  menuPtr = &(shortcutsArray[menuCount++]);  // Point to a structure, then increment.
+
+  strcpy(menuPtr->menuName, menuName);
+  menuPtr->first = NULL;
+
+  itemPtr = &(menuPtr->first);
+
+  x = readLine(aFile, aBuffer);  // Get the number of entries in a menu.
+
+  for (itemCount = atoi(aBuffer); itemCount > 0; itemCount--)
+  {
+    x = readLine(aFile, aBuffer);
+
+    if (strncmp(aBuffer, "Menu", 4) == 0)
+    {
+      *itemPtr                              = malloc(sizeof(shortcuts_menu));
+      (*itemPtr)->next                      = NULL;
+      (*itemPtr)->entry                     = menu;
+      (*itemPtr)->position                  = 0;
+      (*itemPtr)->ruledOff                  = 0;
+      (*itemPtr)->e_type                    = none;
+      (*itemPtr)->shortcut.menu.label       = malloc(sizeof(aBuffer) - 4);
+      (*itemPtr)->shortcut.menu.intMenuName = malloc(sizeof(aBuffer) - 4);
+
+      strcpy((*itemPtr)->shortcut.menu.label,       aBuffer + 5);
+      strcpy((*itemPtr)->shortcut.menu.intMenuName, aBuffer + 5);
+
+      itemPtr = &((*itemPtr)->next);
+
+      getMenus(aFile, aBuffer + 5);
+    }
+    else
+    {
+      *itemPtr                           = malloc(sizeof(shortcuts_menu));
+      (*itemPtr)->next                   = NULL;
+      (*itemPtr)->entry                  = file;
+      (*itemPtr)->position               = 0;
+      (*itemPtr)->ruledOff               = 0;
+      (*itemPtr)->e_type                 = none;
+      namePtr                            = findNameStart(aBuffer);
+      if (namePtr[0] == '!')  namePtr++;
+      (*itemPtr)->shortcut.file.label    = malloc(strlen(namePtr) + 1);
+      (*itemPtr)->shortcut.file.fileName = malloc(sizeof(aBuffer) - 4);
+
+      strcpy((*itemPtr)->shortcut.file.label,    namePtr);
+      strcpy((*itemPtr)->shortcut.file.fileName, aBuffer + 5);
+
+      itemPtr = &((*itemPtr)->next);
+    }
+  }
+
+
+  return;
+}
+
+
+int main (int argc, char *argv[])
+{
+  FILE *in;
+  int   x;
+  char  aBuffer[256];
+
+
+  menuCount = 0;
+
+  if ((in = fopen(argv[1], "r")) != NULL)
+  {
+    x = readLine(in, aBuffer);  // Options ??
+    x = readLine(in, aBuffer);  // Options ??
+    x = readLine(in, aBuffer);  // Empty (unknown!)
+    x = readLine(in, aBuffer);  // Empty (unknown!)
+
+    getMenus(in, "Shortcuts");
+
+    fclose(in);
+
+    Shortcuts_Save(argv[2]);
+
+  }
+  else  printf("Could not open Menon input file %s\n", argv[1]);
+
+
+  return 0;
+}

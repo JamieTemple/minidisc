@@ -1,0 +1,214 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/options.h,v $
+
+   $Revision: 1.3 $
+   $Date: 2003/10/05 16:01:03 $
+
+   MiniDisc configuration options handlers.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_OPTIONS
+#define MDH_OPTIONS
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#include "DeskLib:File.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:MsgTrans.h"
+#include "DeskLib:Resource.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_LookupString
+   Purpose   : Lookup an option from file, allocate memory for it, then put it
+               into that store.
+   Status    : Implementation (V1.2.1)
+   V1.2.1    : 13/09/2003 - Update - Now uses malloc instrad of Mem_ functions.
+   V1.2.0    : 10/08/2000 - Bugfix - Fixes problems with 'empty' options.
+   V1.1.0    : 05/12/1999 - Recode - Now uses DeskLib 'Mem' functions.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_LookupString(text, dest)                                       \
+                                                                               \
+  if ((MsgTrans_Lookup (filedesc, text, buffer, buffer_size)) == NULL)         \
+  {                                                                            \
+    for (i = 0; (i < strlen(buffer)) && (buffer[i] != 0xF3); i++);             \
+                                                                               \
+    if (i < strlen(buffer))                                                    \
+    {                                                                          \
+      dest = malloc (1);                                                       \
+      dest[0] = 0;                                                             \
+    }                                                                          \
+    else                                                                       \
+    {                                                                          \
+      dest = malloc (strlen(buffer) + 1);                                      \
+      strcpy (dest, buffer);                                                   \
+    }                                                                          \
+  }                                                                            \
+  else { dest = malloc (1); dest[0] = 0; }
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_LookupLogical
+   Purpose   : Lookup an option from file, then put a value into a var.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 10/02/2001 - Update - Now ensures result of 1 or 0
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_LookupLogical(text, dest)                                      \
+  MsgTrans_Lookup (filedesc, text, buffer, buffer_size);                       \
+  MakeLower       (buffer,i);                                                  \
+  dest = (strcmp (buffer, "yes") == 0) ? 0 : 1;
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_LookupValue
+   Purpose   : Lookup an option from a file, then put a value into a var.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 01/07/2002 - Bugfix - Now copes with missing tokens.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_LookupValue(text, dest)                                        \
+  if (MsgTrans_Lookup(filedesc, text, buffer, buffer_size - 1) == NULL)        \
+    dest = (int)strtol(buffer, (char **)NULL, 10);                             \
+  else                                                                         \
+    dest = 0;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_SaveLogical
+   Purpose   : Write an option label and its associated logical value to an
+               options file.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_SaveLogical(label, source)                                     \
+  File_printf(aFile, "%s%s\n", label, source ? "No" : "Yes");
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_SaveValue
+   Purpose   : Write an option label and its associated value to options file.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_SaveValue(label, source)                                       \
+  File_printf(aFile, "%s%d\n", label, source);
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_SaveString
+   Purpose   : Write an option label and its associated string to options file.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_SaveString(label, source)                                      \
+  File_printf(aFile, "%s%s\n", label, source != NULL ? source : "");
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_CopyString
+   Purpose   : Allocate some memory, then copy a string into it.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 13/09/2003 - Update - Now uses malloc instrad of Mem_ functions.
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_CopyString(to, from)                                           \
+  if (from == NULL)                                                            \
+    to = NULL;                                                                 \
+  else                                                                         \
+  {                                                                            \
+    to = malloc(strlen(from) + 1);                                             \
+    strcpy(to, from);                                                          \
+  }
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : Options_xxxFile
+   Purpose   : Constants for config file locations.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define Options_IgnoresFile   "<MiniDisc$Choices>.IgnoreFS"
+#define Options_FilerAppsFile "<MiniDisc$Choices>.FilerApps"
+#define Options_SmartSaveFile "<MiniDisc$Choices>.SmartSave"
+#define Options_IconsFile     "<MiniDisc$Choices>.Icons"
+#define Options_AliasesFile   "<MiniDisc$Choices>.Aliases"
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  Options_Copy         (app_config *from, app_config *to);
+extern void  Options_Read         (void);
+extern void  Options_Write        (void);
+extern void  Options_FindFile     (char *fileName);
+extern BOOL  Options_Load         (char *filename);
+extern void  Options_Save         (char *filename);
+extern void  Options_StartScript  (void);
+extern void  Options_CheckPodules (void);
+extern void  Options_LoadSmartSave(void);
+extern void  Options_SaveSmartSave(void);
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: options.h,v $
+   Revision 1.3  2003/10/05 16:01:03  jtemple
+   General check-in for release testing.
+
+   Revision 1.2  2003/09/13 19:54:48  jtemple
+   Replaced Mem_ functions with malloc/free.
+   Code comments tidied.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

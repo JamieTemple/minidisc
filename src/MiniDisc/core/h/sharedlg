@@ -1,0 +1,46 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/sharedlg.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:13 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef __MINIDISC_CORE_SHAREDIALOG_H
+#define __MINIDISC_CORE_SHAREDIALOG_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void ShareDialog            (char *directory, char *name);
+extern void ShareDialog_Initialise (void);
+
+
+
+#endif   // #define __MINIDISC_CORE_SHAREDIALOG_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: sharedlg.h,v $
+   Revision 1.2  2003/10/05 16:00:13  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

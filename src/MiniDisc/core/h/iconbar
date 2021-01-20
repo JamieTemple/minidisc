@@ -1,0 +1,46 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/iconbar.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:06 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef MDH_ICONBAR
+#define MDH_ICONBAR
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void IconBar_Initialise   (void);
+extern void IconBar_Create       (void);
+extern void IconBar_UpdateText   (void);
+extern void IconBar_GetText      (char **returnString);
+extern void IconBar_Update       (void);
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: iconbar.h,v $
+   Revision 1.2  2003/10/05 16:00:06  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

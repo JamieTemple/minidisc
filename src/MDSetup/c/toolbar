@@ -1,0 +1,218 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : mdsetup/toolbar.c                                               *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/toolbar.h"
+
+#include "shared/menu.h"
+
+#include "DeskLib:Icon.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+static menu_ptr  shortcutsMenu = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+BOOL OPMenu_Toolbar_fromMenu (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+
+
+  if (shortcutsArray[event->data.selection[0]].menuName[0] != 0)
+    strcpy(Icon_GetTextPtr(prefspane, OW_tbr_INCLUDED),
+           shortcutsArray[event->data.selection[0]].menuName);
+  else  strcpy(Icon_GetTextPtr(prefspane, OW_tbr_INCLUDED), "<none>");
+
+  Icon_ForceWindowRedraw(prefspane, OW_tbr_INCLUDED);
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OP_Toolbar_ShadeIcons                                           *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OP_Toolbar_ShadeIcons(void)
+{
+  int i = !Icon_GetSelect(prefspane, OW_tbr_ENABLED);
+
+
+  Icon_SetShade(prefspane, OW_tbr_INCLUDEM, i);
+  Icon_SetShade(prefspane, OW_tbr_INCLUDED, i);
+  Icon_SetShade(prefspane, OW_tbr_INCLUDEL, i);
+  Icon_SetShade(prefspane, OW_tbr_HIDEONL,  i);
+  Icon_SetShade(prefspane, OW_tbr_HIDEON0,  i);
+  Icon_SetShade(prefspane, OW_tbr_HIDEON1,  i);
+  Icon_SetShade(prefspane, OW_tbr_HIDEON2,  i);
+  Icon_SetShade(prefspane, OW_tbr_DISPLAYL, i);
+  Icon_SetShade(prefspane, OW_tbr_DISPLAY0, i);
+  Icon_SetShade(prefspane, OW_tbr_DISPLAY1, i);
+  Icon_SetShade(prefspane, OW_tbr_SHOWTIPS, i);
+  Icon_SetShade(prefspane, OW_tbr_BIGBUTS,  i);
+  Icon_SetShade(prefspane, OW_tbr_POSNL,    i);
+  Icon_SetShade(prefspane, OW_tbr_POSN0,    i);
+  Icon_SetShade(prefspane, OW_tbr_POSN1,    i);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_ClickToolbar                                         *
+ * Purpose   : Process clicks upon buttons in the 'Toolbar' options pane.      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_ClickToolbar (event_pollblock *event, void *reference)
+{
+  menu_item *x;
+  int        i;
+  char       menuTitle[20];
+
+
+  db_fn_begin();
+
+  if (event->data.mouse.window == prefspane)
+  {
+    switch(event->data.mouse.icon)
+    {
+      case OW_tbr_HIDEON0:
+      case OW_tbr_HIDEON1:
+      case OW_tbr_HIDEON2:
+      case OW_tbr_DISPLAY0:
+      case OW_tbr_DISPLAY1:
+      case OW_tbr_POSN0:
+      case OW_tbr_POSN1:
+        if (event->data.mouse.button.data.adjust)  Icon_Select(prefspane, event->data.mouse.icon);
+        break;
+
+      case OW_tbr_ENABLED:
+        OP_Toolbar_ShadeIcons();
+        break;
+
+      case OW_tbr_INCLUDEM:
+        if (shortcutsMenu == NULL)  // build menu of existing shortcuts menus
+        {
+          for (i = 0; i < maximumNumberOfShortcuts; i++)
+          {
+            if (shortcutsArray[i].menuName[0] != 0)
+            {
+              if (shortcutsMenu == NULL)
+              {
+                Msgs_Lookup ("conf.actn05", menuTitle, 19);
+                shortcutsMenu = Menu_New(menuTitle, shortcutsArray[i].menuName);
+              }
+              else shortcutsMenu = Menu_Extend(shortcutsMenu, shortcutsArray[i].menuName);
+            }
+          }
+          shortcutsMenu = Menu_Extend(shortcutsMenu, "<none>");
+
+          for (i = 0;;i++)  // This next bit is a rather scrappy way of
+          {                 // putting a dotted line before the last item.
+            x = MenuGet_Item(shortcutsMenu, i);
+            if (x->menuflags.data.last)
+            {
+              x = MenuGet_Item(shortcutsMenu, i - 1);
+              x->menuflags.data.dotted = 1;
+              break;
+            }
+          }
+          // Attach an event handler
+          Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                      (void *)(8 | ((int)shortcutsMenu << 4)));
+        }
+        Menu_PopUp(shortcutsMenu, prefspane, OW_tbr_INCLUDEM);  // Display the menu
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_Toolbar                                                  *
+ * Purpose   : Populate the 'Toolbar' options pane.                            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_Toolbar(void)
+{
+  Icon_SetSelect(prefspane, OW_tbr_ENABLED,  !tempCfg.toolbar.enabled);
+  Icon_SetSelect(prefspane, OW_tbr_SHOWTIPS, !tempCfg.toolbar.showTips);
+  Icon_SetSelect(prefspane, OW_tbr_BIGBUTS,  !tempCfg.toolbar.bigButtons);
+  Icon_SetSelect(prefspane, OW_tbr_HIDEON0,  (tempCfg.toolbar.hideWhen   == 0) ? TRUE : FALSE);
+  Icon_SetSelect(prefspane, OW_tbr_HIDEON1,  (tempCfg.toolbar.hideWhen   == 1) ? TRUE : FALSE);
+  Icon_SetSelect(prefspane, OW_tbr_HIDEON2,  (tempCfg.toolbar.hideWhen   == 2) ? TRUE : FALSE);
+  Icon_SetSelect(prefspane, OW_tbr_DISPLAY0, (tempCfg.toolbar.displayPos == 0) ? TRUE : FALSE);
+  Icon_SetSelect(prefspane, OW_tbr_DISPLAY1, (tempCfg.toolbar.displayPos == 1) ? TRUE : FALSE);
+  Icon_SetSelect(prefspane, OW_tbr_POSN0,    (tempCfg.toolbar.align      == 0) ? TRUE : FALSE);
+  Icon_SetSelect(prefspane, OW_tbr_POSN1,    (tempCfg.toolbar.align      == 1) ? TRUE : FALSE);
+
+  OP_Toolbar_ShadeIcons();
+
+  strcpy(Icon_GetTextPtr(prefspane, OW_tbr_INCLUDED), tempCfg.toolbar.includeMenu);
+  Icon_ForceWindowRedraw(prefspane, OW_tbr_INCLUDED);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_Toolbar                                                 *
+ * Purpose   : Record options from the Toolbar pane before closing.            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_Toolbar(void)
+{
+  int  hideWhen = 0;
+
+
+  tempCfg.toolbar.enabled    = !Icon_GetSelect(prefspane, OW_tbr_ENABLED);
+  tempCfg.toolbar.showTips   = !Icon_GetSelect(prefspane, OW_tbr_SHOWTIPS);
+  tempCfg.toolbar.bigButtons = !Icon_GetSelect(prefspane, OW_tbr_BIGBUTS);
+  tempCfg.toolbar.displayPos = !Icon_GetSelect(prefspane, OW_tbr_DISPLAY0) ? 1 : 0;
+  tempCfg.toolbar.align      = !Icon_GetSelect(prefspane, OW_tbr_POSN0)    ? 1 : 0;
+
+  if (Icon_GetSelect(prefspane, OW_tbr_HIDEON0)) hideWhen = 0;
+  if (Icon_GetSelect(prefspane, OW_tbr_HIDEON1)) hideWhen = 1;
+  if (Icon_GetSelect(prefspane, OW_tbr_HIDEON2)) hideWhen = 2;
+
+  tempCfg.toolbar.hideWhen   = hideWhen;
+
+  reAssignText (OW_tbr_INCLUDED, tempCfg.toolbar.includeMenu);
+}
+
+

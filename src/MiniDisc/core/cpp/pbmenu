@@ -1,0 +1,221 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/pbmenu.cpp,v $
+
+   $Revision: 1.6 $
+   $Date: 2004/04/14 14:44:06 $
+
+   Generate and process clicks in a menu of the Pinboard contents.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Menu.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:WimpMsg.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Globals
+--------------------------------------------------------------------------------
+*/
+static int marray[128];  // Pinboard icon handles [0] = first menu entry.
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : PinMenu_FakeClick
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL PinMenu_FakeClick (event_pollblock *event, void *reference)
+{
+  mouse_block  mBlock;
+
+
+  db->fn_begin();
+
+  mBlock.pos.x        = 0;
+  mBlock.pos.y        = 0;
+  mBlock.window       = (int) reference;
+  mBlock.icon         = marray[event->data.selection[0]];
+  mBlock.button.value = 4;
+
+  // Fake a Select-double-click on an appropriate icon on the Pinbaord.
+  Wimp_SendMessage (event_CLICK, (message_block *) &mBlock, (int) reference,
+                    marray[event->data.selection[0]]);
+
+  /* Note: If we are being /really/ good, then we should also dump any
+   * menu details (and associated memory allocated to them) along with
+   * releasing the event handler.
+   */
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : pinboardContentsMenu
+   Purpose   : Generate a menu of the contents of the pinboard.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void pinboardContentsMenu(void)
+{
+  menu_ptr          someMenu = NULL;
+  mouse_block       pointerData;
+  char              aBuffer[128];
+  window_info       info,
+                   *pinfo;
+  int               i,
+                    mentry;
+  icon_block       *iblock;
+  task_handle       task;
+  window_handle     next_window = -1,
+                    wptr;
+
+
+  db->fn_begin();
+
+  Wimp_Enumerate(windowenum_FRONT, &next_window);     // Get the top window, so we can work down the stack
+
+  while (next_window != -1)
+  {
+    wptr = next_window;                               // Record the window handle of the current window.
+
+    Wimp_Enumerate(windowenum_BEHIND, &next_window);  // Read the next window down the stack.
+
+    task = WimpMsg_GetTaskHandle(wptr, 0);            // Read the task handle of that window.
+
+    if (task == 0)  continue;                         // Keep looking if no one responds to the message.
+
+    // If we've not found the Pinboard, keep searching...
+    if (strcmp(XUtil_TaskGetName(task), "Pinboard") != 0)  continue;
+
+
+    /* ***** PINBOARD WINDOW FOUND ***** */
+
+
+    /* First of all, we need to get the window details, but without
+     * the icon definitions, as we don't know how many of them there
+     * are at this point.  However this call will return details
+     * which include the number of icons in the window.
+     */
+    info.window = wptr;
+    Wimp_GetWindowInfoNoIcons(&info);
+
+    /* Now that we know how many icons are in the window, we can
+     * allocate enough memory for a full window description, then
+     * call Wimp_GetWindowInfo to retrieve everything.
+     */
+    pinfo = (window_info *) malloc(sizeof(window_info)+info.block.numicons * sizeof(icon_block));
+    pinfo->window = wptr;
+    Wimp_GetWindowInfo(pinfo);
+
+    /* Now loop through each icon definition, creating an entry
+     * in the menu for each icon on the Pinboard.
+     */
+    for (i = 0, mentry = 0; i < pinfo->block.numicons; i++)
+    {
+      /* As the icons in the window cannot be directly addressed via
+       * the pinfo structure, we need to generate an icon_block pointer
+       * that points to an appropriate place after the main window_info.
+       */
+      iblock = (icon_block *)((int)pinfo + sizeof(window_info) + i * sizeof(icon_block));
+
+      // Ignore icon definitions flagged as deleted.
+      if (iblock->flags.data.deleted)  continue;
+
+      /* Read a chunk of Pinboard's memory to copy the text from under
+       * the icon into an area where we can get at it.
+       */
+      XUtil_ReadAppMemory(task, iblock->data.indirecttext.buffer, aBuffer, 128);
+
+      db->tracef(1, "Adding entry %d as %s", i, aBuffer);
+      marray[mentry++] = i;
+      if (someMenu == NULL)  someMenu = Menu_New    ("Pinboard files", aBuffer);
+      else                   someMenu = Menu_Extend (someMenu, aBuffer);
+    }
+
+    free(pinfo);
+
+    break;  // Pinboard found and processed, so bail out.
+  }
+
+
+  Wimp_GetPointerInfo (&pointerData);
+
+  if (someMenu == NULL)  someMenu = Menu_New ("Pinboard files", "~(empty)");
+
+  Menu_Show   (someMenu, pointerData.pos.x, -1);
+
+  Event_Claim (event_MENU, event_ANY, event_ANY, PinMenu_FakeClick, (void *) wptr);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: pbmenu.cpp,v $
+   Revision 1.6  2004/04/14 14:44:06  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.5  2003/10/05 16:00:12  jtemple
+   General check-in for release testing.
+
+   Revision 1.4  2003/09/14 11:16:27  jtemple
+   Replaced Mem_ functions with malloc/free.
+
+   Revision 1.3  2003/08/29 19:58:15  jtemple
+   Improved debugging.  Renamed cmenu to the far more useful pinboard_FakeClick
+
+   Revision 1.2  2003/08/13 22:48:54  jtemple
+   Now makes an '(empty)' menu disabled.  Previously, the '(empty)' entry could be clicked on, which was causing some really interesting things (tm) to happen ;-)
+
+
+--------------------------------------------------------------------------------
+*/
+
+

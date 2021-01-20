@@ -1,0 +1,691 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/filters/filtermanager.cpp,v $
+
+   $Revision: 1.5 $
+   $Date: 2004/04/17 14:56:33 $
+
+   Core MiniDisc WIMP filtering / patching code & dispatcher.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "minidisc/core/ModHdr.h"
+#include "minidisc/core/menu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "MiniDisc/core/shortcuts.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Filter.h"
+#include "DeskLib:File.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:WimpMsg.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/*
+--------------------------------------------------------------------------------
+   External procedures
+--------------------------------------------------------------------------------
+*/
+extern BOOL  MenuBuild_ClickPath     (event_pollblock *event, void *reference);
+extern BOOL  MenuBuild_FollowPath    (event_pollblock *event, void *reference);
+
+
+extern int   MD_PinMenu_Filter       (event_data *block, _kernel_swi_regs *r);
+extern BOOL  MD_PinMenu_Message      (event_pollblock *event, void *reference);
+
+extern int   MD_PinSave_Filter       (event_data *block, _kernel_swi_regs *r);
+extern BOOL  MD_PinSave_Message      (event_pollblock *event, void *reference);
+
+
+extern BOOL  MD_TitleMenu_Message    (event_pollblock *event, void *reference);
+extern BOOL  MD_TitleMenu_Event      (_kernel_swi_regs *r, void *pw);
+
+extern BOOL  MD_DoubleTake_Filter    (event_pollblock *event, void *reference);
+
+extern BOOL  MD_CtrlOpen_Message     (event_pollblock *event, void *reference);
+extern BOOL  MD_CtrlOpenDir_Message  (event_pollblock *event, void *reference);
+extern int   MD_CtrlOpen_Event       (_kernel_swi_regs *r, void *pw);
+
+extern BOOL  TaskSwitcher_Open       (event_pollblock *event, void *reference);
+extern BOOL  TaskSwitcher_Close      (event_pollblock *event, void *reference);
+extern int   TaskSwitcher_Event      (_kernel_swi_regs *r, void *pw);
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables (Available in .h)
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  BOOL  used;
+} keyEvent;
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global Variables
+--------------------------------------------------------------------------------
+*/
+static int       lastTask;
+static keyEvent  keyHandlers[0x0fff];
+static char      MDEvents_fsnBuffer[1024];  /*
+                                             * Must be global to stay valid between vector call and
+                                             * it being used by the WIMP app message handling code.
+                                             */
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : keyHandler
+   Purpose   : Process key-press events.
+   Status    : Development.
+   Notes     : (Internal use only)
+--------------------------------------------------------------------------------
+*/
+BOOL keyHandler (event_pollblock *event, void *reference)
+{
+  int          i;
+  mouse_block  ptr;
+  menu_ptr     scMenu;
+
+
+  if (event->data.key.code < 0 || event->data.key.code > 0x0fff)  /* Outside our range. */
+  {
+    Wimp_ProcessKey(event->data.key.code);
+  }
+
+  else if (!keyHandlers[event->data.key.code].used)  /* Not a key we're interested in... */
+  {
+    Wimp_ProcessKey(event->data.key.code);
+  }
+
+  else  /* Key has been assigned an action, so do something... */
+  {
+    for (i = 0; i < maximumNumberOfShortcuts; i++)
+    {
+      if (shortcutsArray[i].event.keyboard.value == event->data.key.code)
+      {
+        scMenu = (menu_ptr)Shortcuts_CreateMenu(event, shortcutsArray[i].first,
+                                                shortcutsArray[i].menuName);
+
+        d->currentMenu.menuptr          = (int)scMenu;
+        d->currentMenu.type             = MD_menu_shortcut;
+        d->currentMenu.context.shortcut = &(shortcutsArray[i]);
+
+        Shortcuts_AddHandlers (scMenu);
+        Wimp_GetPointerInfo   (&ptr);
+        Menu_Show             (scMenu, ptr.pos.x, ptr.pos.y);
+      }
+    }
+  }
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_PathMenu
+   Purpose   : Generate a path menu in response to a message.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 16/12/2001 - Bugfix - the __DirectoryMenu code was trashing the
+                                     menu context info - fixed.
+   V1.0.0    : 15/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MDFilters_PathMenu (event_pollblock *event, void *reference)
+{
+  mouse_block    ptr;
+  int            i;
+
+
+  if (!File_IsDirectory(event->data.message.data.bytes))  return TRUE;
+
+  Wimp_GetPointerInfo (&ptr);
+
+  for (i = strlen(event->data.message.data.bytes);
+    event->data.message.data.bytes[i] != '.'; i--);  /* build a menu title */
+
+  dirMenu_SetFlags();
+
+  // This next line is required to stop the MenuBuild_DirectoryMenu code
+  // from trashing the string.
+  strcpy(MDEvents_fsnBuffer, event->data.message.data.bytes);
+
+  mainmenu = (menu_ptr) dirMenu_FromDir (event->data.message.data.bytes,
+                                         event->data.message.data.bytes + i + 1, TRUE);
+
+  d->currentMenu.menuptr         = (int)mainmenu;
+  d->currentMenu.type            = MD_menu_directory;
+  d->currentMenu.context.dirPath = MDEvents_fsnBuffer;
+
+  dirMenu_AddHandlers ((void *) mainmenu);
+
+  Menu_Show (mainmenu, ptr.pos.x, ptr.pos.y);
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_Remove
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MDFilters_Remove (void)
+{
+  db->fn_begin();
+
+  EventMsg_Release (MDMsg_PathMenu,         event_ANY, MDFilters_PathMenu);
+  EventMsg_Release (MDMsg_TitleMenu,        event_ANY, MD_TitleMenu_Message);
+  EventMsg_Release (MDMsg_ShowShortcut,     event_ANY, MD_PinMenu_Message);
+  EventMsg_Release (MDMsg_PinboardSave,     event_ANY, MD_PinSave_Message);
+  EventMsg_Release (message_DATAOPEN,       event_ANY, MD_DoubleTake_Filter);
+  EventMsg_Release (MDMsg_CtrlOpen,         event_ANY, MD_CtrlOpen_Message);
+  EventMsg_Release (MDMsg_CtrlOpenDir,      event_ANY, MD_CtrlOpenDir_Message);
+  EventMsg_Release (MDMsg_CoolSwitch_Open,  event_ANY, TaskSwitcher_Open);
+  EventMsg_Release (MDMsg_CoolSwitch_Close, event_ANY, TaskSwitcher_Close);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_Initialise
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MDFilters_Initialise (void)
+{
+  window_handle     grabKeys;
+  window_info       result;
+  window_openblock  block;
+  int               i;
+
+
+  db->fn_begin();
+
+  db->trace (100, "Initialising...");
+
+  grabKeys = Window_Create ("grabkeys", 50);
+  Event_Claim    (event_KEY, event_ANY, event_ANY, keyHandler, NULL);
+  Window_GetInfo (grabKeys, &result);
+  block.window           = grabKeys;
+  block.screenrect.min.x = -100;  /* Ensure */
+  block.screenrect.min.y = -100;  /* we are */
+  block.screenrect.max.x = -200;  /*  off-  */
+  block.screenrect.max.y = -200;  /* screen */
+  block.scroll.x         = 0;
+  block.scroll.y         = 0;
+  block.behind           = 0;
+  Wimp_OpenWindow (&block);
+
+  for (i = 0; i < 0x0fff; i++) keyHandlers[i].used = FALSE;
+
+  EventMsg_Claim (MDMsg_PathMenu,         event_ANY, MDFilters_PathMenu,     NULL);
+  EventMsg_Claim (MDMsg_TitleMenu,        event_ANY, MD_TitleMenu_Message,   NULL);
+  EventMsg_Claim (MDMsg_ShowShortcut,     event_ANY, MD_PinMenu_Message,     NULL);
+  EventMsg_Claim (MDMsg_PinboardSave,     event_ANY, MD_PinSave_Message,     NULL);
+  EventMsg_Claim (message_DATAOPEN,       event_ANY, MD_DoubleTake_Filter,   NULL);
+  EventMsg_Claim (MDMsg_CtrlOpen,         event_ANY, MD_CtrlOpen_Message,    NULL);
+  EventMsg_Claim (MDMsg_CtrlOpenDir,      event_ANY, MD_CtrlOpenDir_Message, NULL);
+  EventMsg_Claim (MDMsg_CoolSwitch_Open,  event_ANY, TaskSwitcher_Open,      NULL);
+  EventMsg_Claim (MDMsg_CoolSwitch_Close, event_ANY, TaskSwitcher_Close,     NULL);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_DeRegisterKey
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 05/03/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MDFilters_DeRegisterKey (int keyValue)
+{
+  keyHandlers[keyValue].used = FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_RegisterKey
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 05/03/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MDFilters_RegisterKey (int keyValue, int action, void *context)
+{
+  keyHandlers[keyValue].used = TRUE;
+
+  UNUSED(action);
+  UNUSED(context);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar__Hide
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/08/2001 - Preliminary implementation.
+   Notes     : As specified in ModHdr.cmhg
+               At the moment, this simply sends an UNOFFICIAL message to the
+               MiniDisc WIMP app.
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *ToolBar__Hide(_kernel_swi_regs *r, void *pw)
+{
+  WimpMsg_SendTask(event_SEND, (message_action)MDMsg_ToolbarAlt, NULL, 0, d->task);
+
+  UNUSED(r);
+  UNUSED(pw);
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Filters__PreProcess
+   Purpose   : Patches the Pinboard to allow it to recieve DataSave messages.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 19/06/2004 - Bugfix - Now only updates the messages once, as
+                            constantly updating them was leaking RMA space.
+   V1.0.0    : 12/05/2002 - Preliminary implementation.
+   Notes     : Arrives here when the (pre) filter starts...
+               (This is probably not the best place to put this code.)
+--------------------------------------------------------------------------------
+*/
+int Filters__PreProcess(_kernel_swi_regs *r, void *pw)
+{
+  int          messages[3];
+  char        *taskName;
+  static bool  messagesUpdated = FALSE;
+
+
+  if (messagesUpdated)                    return 1;  // Already patched the Pinboard
+
+  taskName = XUtil_TaskGetName(r->r[2]);
+
+  if (taskName == (char *)-1)             return 1;  // Failed to read name from handle.
+
+  if (strcmp(taskName, "Pinboard") != 0)  return 1;  // Not on pinboard
+
+  messages[0] = 1;   // data save
+  messages[1] = 10;  // save desk (???)
+  messages[2] = 0;   // terminator.
+
+  Wimp_AddMessages(messages);
+
+  messagesUpdated = TRUE;
+
+  UNUSED(pw);
+
+
+  return 1;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Filters__Process
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 14/05/2001 - Preliminary implementation.
+   Notes     : Arrives here when the filter starts...
+--------------------------------------------------------------------------------
+*/
+int Filters__Process(_kernel_swi_regs *r, void *pw)
+{
+  lastTask = r->r[2];
+
+  if (MD_PinSave_Filter ((event_data *)r->r[1], r) == -1)  return 1;
+
+  if (MD_PinMenu_Filter ((event_data *)r->r[1], r) == -1)  return 1;
+
+  UNUSED(pw);
+
+
+  return 1;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Filters__PreSWI
+   Purpose   :
+   Status    : Development.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *Filters__PreSWI(_kernel_swi_regs *r, void *pw)
+{
+  _kernel_swi_regs  regs;
+//  menu_block       *block = (menu_block *)r->r[1];
+
+
+  db->fn_begin();
+
+  regs.r[0] = lastTask;
+  (void) _kernel_swi(0x042680, &regs, &regs);
+
+  if (strcmp((char *)regs.r[0], "MiniDisc") == 0)
+    db->trace(1, "MiniDisc is just about to create a menu.");
+
+//  block->title[0] = 'X';
+
+  UNUSED(r);
+  UNUSED(pw);
+
+  db->fn_end();
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MD_ToolbarHide_Event
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 05/08/2003 - Preliminary implementation.
+   Notes     : .
+--------------------------------------------------------------------------------
+*/
+int MD_ToolbarHide_Event(_kernel_swi_regs *r, void *pw)
+{
+  if (r->r[1] != 1)      return 1;          // Only process key up events
+
+  if (r->r[2] != 0x05e)  return 1;          // Not Alt(1) pressed.
+
+  XUtil_AddCallBack(CB__ToolBar_Hide, pw);  // Add a callback handler
+
+
+  return 1;                                 // Exit, but pass on keypress
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Filters__Event
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/05/2001 - Preliminary implementation.
+   Notes     : For handling mouse events missed by the filter functions.
+
+               IMPORTANT : THIS CODE MUST REMAIN HIGHLY OPTIMISED, AS WE NEED
+               TO PERFORM EVENT HANDLING QUICKLY (e.g. < 100uS)
+--------------------------------------------------------------------------------
+*/
+int Filters__Event(_kernel_swi_regs *r, void *pw)
+{
+  // Mouse click events
+  if (r->r[0] == 10)
+  {
+    if (MD_TitleMenu_Event(r, pw))  return 0;  // CLAIM THE EVENT
+    else                            return 1;
+  }
+
+
+  // Key press events
+  if (r->r[0] == 11)
+  {
+    if (MD_ToolbarHide_Event(r, pw) == 1)      // event not claimed
+    {
+      if (MD_CtrlOpen_Event(r, pw) == 1)       // event not claimed
+      {
+        return TaskSwitcher_Event(r, pw);      // returns 0 if claimed, otherwise 1
+      }
+    }
+    return 0;  // event claimed somewhere along the lines
+  }
+
+
+  // Other events (should not be any)
+  return 1;  // do not claim the event
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : claim_release
+   Purpose   : Calim or release Event vector traps.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Filters_EventsClaim(int claim, void *pw)
+{
+  _kernel_swi_regs regs;
+
+
+  /* Mouse clicks - used for window title bar menu click filter */
+  regs.r[0] = 0x10;  /* EventV */
+  regs.r[1] = (int) Filters__Event_handler;
+  regs.r[2] = (int) pw;
+  _kernel_swi (claim ? SWI_OS_Claim : SWI_OS_Release, &regs, &regs);
+
+  /* Mouse movements - used for toolbar displaying code */
+  regs.r[0] = 0x1a;  /* MouseV */
+  regs.r[1] = (int) ToolBar__TrackMouse_handler;
+  regs.r[2] = (int) pw;
+  _kernel_swi (claim ? SWI_OS_Claim : SWI_OS_Release, &regs, &regs);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : add_remove
+   Purpose   : Enable or disable event trapping.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/05/2001 - Preliminary implementation.
+   Notes     : r0 = 13 = Disable.  r0 = 14 = Enable
+--------------------------------------------------------------------------------
+*/
+void Filters_EventsSetup(int add)
+{
+  _kernel_swi_regs regs;
+
+
+  // MouseClick
+  regs.r[0] = 13 + add;
+  regs.r[1] = 10;
+  _kernel_swi (SWI_OS_Byte, &regs, &regs);
+
+  // Key up / down
+  regs.r[0] = 13 + add;
+  regs.r[1] = 11;
+  _kernel_swi (SWI_OS_Byte, &regs, &regs);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : wswive_filter
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void wswive_filter(int swiword, int flags, int claim, void handler(void), void *pw)
+{
+  _kernel_swi_regs  regs;
+
+
+  // bits 0..5         - SWI chunk offset
+  // bit  6 clear      - claim only this SWI
+  // bit  7 clear      - use is undefined
+  // bits 8..11 set    - dont update flags
+  // bits 12..29 clear - use is undefined
+  // bit  30 clear     - low priority
+  // bit  31 set       - claim SWI filter
+
+  swiword = swiword | flags;
+  swiword = swiword | ((unsigned int)claim<<31);
+
+  regs.r[0] = 0x49575357;                        // "WSWI"
+  regs.r[1] = swiword;                           // SWI filter description word
+  regs.r[2] = (int) pw;                          // Private word passed to filter
+  regs.r[3] = (int) handler;                     // Pre SWI filter address
+  regs.r[4] = 0;                                 // No post-SWI filter
+  _kernel_swi (0x0400f5, &regs, &regs);          // WIMP_RegisterFilter
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_Setup
+   Purpose   : Claim or release application vector traps and filters.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 14/05/2001 - Update - Added filter handling.
+   V1.0.0    : 06/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MDFilters_Setup(int claim, void *pw)
+{
+  _kernel_swi_regs  regs;
+
+
+  /* On module initialisation. */
+  if (claim)
+  {
+//    wswive_filter(0x0400d4 - 0x0400c0, 0x0f00, 1, Filters__PreSWI_handler, pw);
+    wswive_filter(0x0400e2 - 0x0400c0, 0x0f00, 1, Filters__FilerPlot_handler, pw);
+
+    regs.r[0] = (int) Module_Title;
+    regs.r[1] = (int) Filters__Filter_PreHandler;
+    regs.r[2] = (int) pw;
+    regs.r[3] = 0;                                 /* (All Tasks) */
+    _kernel_swi (0x042640, &regs, &regs);          /* RegisterPreFilter */
+
+    regs.r[0] = (int) Module_Title;
+    regs.r[1] = (int) Filters__Filter_handler;
+    regs.r[2] = (int) pw;
+    regs.r[3] = 0;                                 /* (All Tasks) */
+    regs.r[4] = 0xfff9ffbf;                        /* Mask : Click / Message / ... */
+    regs.r[4] = 0;                                 /* Mask : Click / Message / ... */
+    _kernel_swi (0x042641, &regs, &regs);          /* RegisterPostFilter */
+
+    Filters_EventsClaim(1,pw);
+    Filters_EventsSetup(1);
+  }
+
+
+  /* On module closedown. */
+  else
+  {
+//    wswive_filter(0x0400d4 - 0x0400c0, 0x0f00, 0, Filters__PreSWI_handler, pw);
+    wswive_filter(0x0400e2 - 0x0400c0, 0x0f00, 0, Filters__FilerPlot_handler, pw);
+
+    regs.r[0] = (int) Module_Title;
+    regs.r[1] = (int) Filters__Filter_PreHandler;
+    regs.r[2] = (int) pw;
+    regs.r[3] = 0;                                 /* (All Tasks) */
+    _kernel_swi (0x042642, &regs, &regs);          /* DeRegisterPreFilter */
+
+    regs.r[0] = (int) Module_Title;
+    regs.r[1] = (int) Filters__Filter_handler;
+    regs.r[2] = (int) pw;
+    regs.r[3] = 0;                                 /* (All Tasks) */
+    regs.r[4] = 0;                                 /* poll mask */
+    _kernel_swi (0x042643, &regs, &regs);          /* DeRegisterPostFilter */
+
+    Filters_EventsSetup(0);
+    Filters_EventsClaim(0,pw);
+  }
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: filtermanager.cpp,v $
+   Revision 1.5  2004/04/17 14:56:33  jtemple
+   Ensured directory opener only functioned when option enabled.
+   Fixed task name reading in filter manager core.
+   Added option to enable / disable task switcher, added Shift support.
+
+   Revision 1.4  2004/04/14 14:44:13  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.3  2003/09/13 23:38:54  jtemple
+   debugging fn entry/exit code added.
+
+   Revision 1.2  2003/08/14 20:24:07  jtemple
+   Added new MDMsg_CtrlOpenDir message, and registering / de-registering functions.  Also tidied code and comments.
+
+
+--------------------------------------------------------------------------------
+*/
+
+
+

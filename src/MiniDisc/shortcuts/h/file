@@ -1,0 +1,73 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/shortcuts/file.h                                       *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SCUT_FILE
+#define MDH_SCUT_FILE
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "DeskLib:File.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  Shortcuts_FileAction        (shortcuts_menu  *current,
+                                          event_pollblock *event,
+                                          int              callType);
+
+extern void  Shortcuts_LoadScFile        (char            *stringStart,
+                                          shortcuts_menu  *next);
+
+extern char *Shortcuts_CalculateFileIcon (file_info       *fileInfo,
+                                          icon_indtext    *indirecttext,
+                                          icon_flags      *flags);
+
+extern void  Shortcuts_AddFile           (menu_ptr         aMenu,
+                                          int              entryNumber,
+                                          shortcuts_menu  *menuEntry);
+
+extern void  Shortcut_FileDispose        (shortcuts_menu **item);
+
+extern void  Shortcut_FileAddTBIcon      (shortcuts_menu *current, int index, char *menuName);
+
+
+/*
+class aShortcut
+{
+  public:
+    static void action  (shortcuts_menu *current, event_pollblock *event, int callType);
+    static void load    (char *stringStart, shortcuts_menu *next);
+    static void add     (menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry);
+    static void dispose (shortcuts_menu **item);
+    static void addicon (shortcuts_menu *current, int index, char *menuName);
+};
+
+
+class sc_file : public aShortcut
+{
+  public:
+   char *calculate_file_icon (file_info *fileInfo, icon_indtext *indirecttext, icon_flags *flagsvoid);
+};
+*/
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif

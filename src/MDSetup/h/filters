@@ -1,0 +1,71 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MDSetup/filters.h,v $
+
+   $Revision: 1.3 $
+   $Date: 2004/04/17 14:55:04 $
+
+   MiniDisc filters configuration window handling functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_CFG_FILTERS
+#define MDH_CFG_FILTERS
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "DeskLib:Event.h"
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : OW_fl?_xxxx
+   Purpose   : Filters options panes icon numbers.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 13/08/2003 - Update - Changed PCDELETE icon to be the new filer
+                                     Ctrl-drag-open-directory patch icon.
+   V1.0.0    : 18/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define OW_fl0_WINTITL  1
+#define OW_fl0_DBLTAKE  2
+#define OW_fl0_PINSAVE  3
+#define OW_fl0_FLROPEN  4
+#define OW_fl0_TSWITCH  5
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  OWFill_Filter          (void);
+extern void  OWStore_Filter         (void);
+extern void  OWClose_Filter         (void);
+extern BOOL  OptionPane_ClickFilter (event_pollblock *event, void *reference);
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: filters.h,v $
+   Revision 1.3  2004/04/17 14:55:04  jtemple
+   Added task switcher support.
+
+   Revision 1.2  2003/08/16 15:42:14  jtemple
+   Changed PC Delete filter code to filer-drag-open-dir instead.  Also tidied code and comments
+
+
+--------------------------------------------------------------------------------
+*/

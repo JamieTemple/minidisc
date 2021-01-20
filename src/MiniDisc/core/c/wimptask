@@ -1,0 +1,597 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/wimptask.c,v $
+
+   $Revision: 1.6 $
+   $Date: 2004/04/14 14:44:07 $
+
+   Main WIMP application event polling loop lives in here.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+#include "shared/stdhandlers.h"
+#include "shared/utilities.h"
+#include "shared/options.h"
+
+#include "MiniDisc/core/ModHdr.h"
+#include "MiniDisc/core/iconbar.h"
+#include "minidisc/core/hideicons.h"
+#include "MiniDisc/core/ibmenu.h"
+#include "MiniDisc/core/taskslice.h"
+#include "MiniDisc/core/toolbar.h"
+#include "minidisc/core/sharedlg.h"
+#include "MiniDisc/core/shortcuts.h"
+
+#include "MiniDisc/filters/filters.h"
+
+#include "MiniDisc/modules/psiriscfs.h"
+#include "MiniDisc/modules/filecore.h"
+#include "MiniDisc/modules/memfs.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:File.h"
+#include "DeskLib:Filing.h"
+#include "DeskLib:Filter.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Resource.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Template.h"
+#include "DeskLib:Time.h"
+#include "DeskLib:Url.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:Wimp.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global Variables
+--------------------------------------------------------------------------------
+*/
+static int MD__PreQuit         = FALSE,
+           MD__DesktopShutdown = FALSE;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : noMoreMenus
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/03/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern BOOL noMoreMenus (event_pollblock *event, void *reference)
+{
+  message_block  message;
+
+
+  db_fn_begin();
+
+  message.header.sender  = d->task;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = MDMsg_NoMoreMenus;
+  message.header.size    = sizeof(message);
+
+  Wimp_SendMessage(event_SEND, &message, 0, NULL);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MD_FSN_Check
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 05/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int MD_FSN_Check(char *fsn)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  char              fileName[370];  /* Maximum LEAF filename length = 370 - 24 = 346 */
+  BOOL              result;
+
+
+  db_fn_begin();
+
+  db_tracef(1, "Checking fsn : %s", fsn);
+
+  regs.r[0]   = 12;                             // OS_GBPB 12
+  regs.r[1]   = (int) fsn;                      // Pointer to directory name
+  regs.r[2]   = (int) fileName;                 // Pointer to word aligned buffer
+  regs.r[3]   = 1;                              // Number of objects to handle at once
+  regs.r[4]   = 0;                              // Offset of first item in dir to read
+  regs.r[5]   = sizeof(fileName) - 1;           // Buffer size
+  regs.r[6]   = 0;                              // Match '*'
+  anError     = _kernel_swi(12, &regs, &regs);  // Initial OS_GBPB call
+
+  if (anError != NULL || regs.r[3] == 0)  result = TRUE;   // Directory is empty / an error occurred
+  else                                    result = FALSE;  // Files still exits in ram disc.
+
+  db_fn_end();
+
+
+  return result;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : reloadChoicesX
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 05/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL reloadChoicesX (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  db_trace(1, "Re-loading options...");
+
+  Options_Load      ("<MiniDisc$Options>");
+  Shortcuts_TBButts (MDCfg->toolbar.includeMenu);
+  Toolbar_Reinit    ();
+  IconBar_HideIcons ();
+
+  d->iconType = MDCfg->iconbar.iconType;
+
+  IconBar_Create    ();
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : App_PreQuit
+   Purpose   : WIMP Message_PREQUIT handler
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 04/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL App_PreQuit (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  BOOL              check1, check2;
+
+
+  db_fn_begin();
+
+  if ((event->data.message.data.bytes[0] & 1) != 1)  // Only desktop shutdown warnings
+  {
+    MD__DesktopShutdown = TRUE;
+
+    if (!MD__PreQuit)  // Finished pre-quit processing?
+    {
+      if (MDCfg->misc.ramConfirm == 1)
+      {
+        db_trace(1, "RAM disc checks disabled.");
+
+        MD__PreQuit = TRUE;
+      }
+      else
+      {
+        db_trace(1, "Checking for data still in RAM discs ...");
+
+        check1 = MD_FSN_Check("Mem::0.$");
+        check2 = MD_FSN_Check("RAM::0.$");
+
+        if ((!check1) || (!check2))
+        {
+          event->data.message.header.yourref = event->data.message.header.myref;
+          Wimp_SendMessage(event_ACK, &event->data.message, NULL, NULL);
+
+          // See if there is any data in the Memphis RAM disc...
+          if (!check1)
+          {
+            strcpy(MD_tmp, "Filer_OpenDir ");
+
+            regs.r[0] = 37;
+            regs.r[1] = (int) "Mem::0.$";
+            regs.r[2] = (int) MD_tmp + 14;
+            regs.r[3] = 0;
+            regs.r[4] = 0;
+            regs.r[5] = buffer_size - 14;
+            anError   = _kernel_swi(0x29, &regs, &regs);
+
+            Wimp_StartTask(MD_tmp);
+          }
+
+          // See if there is any data in the RAM disc...
+          if (!check2)
+          {
+            strcpy(MD_tmp, "Filer_OpenDir ");
+
+            regs.r[0] = 37;
+            regs.r[1] = (int) "RAM::0.$";
+            regs.r[2] = (int) MD_tmp + 14;
+            regs.r[3] = 0;
+            regs.r[4] = 0;
+            regs.r[5] = buffer_size - 14;
+            anError   = _kernel_swi(0x29, &regs, &regs);
+
+            Wimp_StartTask(MD_tmp);
+          }
+
+          if (queryDialog("warn.sdres", "warn.bsd01", "warn.bno01", NULL) == qdResult_OK)
+          {
+            MD__PreQuit = TRUE;
+            Wimp_ProcessKey(0x1fc);  // !!!
+          }
+        } // of checks ...
+      }  // ram confirm
+    }  // MD__PreQuit
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : App_Quit
+   Purpose   : WIMP Message_QUIT handler
+   Status    : Implementation (V1.1.3)
+   V1.1.3    : 08/09/2002 - Update - Now sends Quit messages to support apps.
+   V1.1.2    : 03/11/2001 - Update - Exit script is now standard.
+   V1.1.1    : 22/01/2001 - Update - Now calls exitANDDIE to rmkill module.
+   V1.1.0    : 13/01/2000 - Update - Split out icon restore code.
+   V1.0.2    : 12/09/1999 - Update - Now only restores filer icons (and runs
+                                     exit scripts) if the WIMP is not shutting
+                                     down.
+   V1.0.1    : 11/09/1999 - Update - Moved bits from 'Main'
+                                   - Added code to run an extra script on exit
+                                   - Now restores filer icons
+                                   - Made this the main exit handler.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     : Called in response to WIMP message. - Usually from a Shutdown
+               or from selecting 'Quit' in the task-manager.
+--------------------------------------------------------------------------------
+*/
+static BOOL App_Quit (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  regs;
+
+
+  db_fn_begin ();
+  db_trace    (80, "MiniDisc is closing down...");
+
+  XUtil_TaskSendQuit ("MDSetup");  /* Tell the Configuration tool to quit. */
+  XUtil_TaskSendQuit ("SCSetup");  /* Tell the Shortcuts Builder to quit.  */
+
+  regs.r[0] = (int) "MiniDisc$Shortcuts";
+  regs.r[1] = 0;
+  regs.r[2] = -1;                   // remove variable
+  regs.r[3] = 0;
+  regs.r[4] = 0;
+  _kernel_swi(0x24, &regs, &regs);  // OS_SetVarVal
+
+  regs.r[0] = (int) "MiniDisc$Options";
+  regs.r[1] = 0;
+  regs.r[2] = -1;                   // remove variable
+  regs.r[3] = 0;
+  regs.r[4] = 0;
+  _kernel_swi(0x24, &regs, &regs);  // OS_SetVarVal
+
+  /* Check if there is a configuration file available here. If not, then create one! */
+  if (!File_Exists("<MiniDisc$Choices>.Choices"))  Options_Save("<MiniDisc$Choices>.Choices");
+
+  if (event == NULL || !MD__DesktopShutdown)  /* ... Not a WIMP initiated call */
+  {
+    IconBar_RestoreIcons ();
+
+    if (!File_Exists("<MiniDisc$Choices>.Exit"))  // QUIETLY add the exit script.
+      OS_CLI("Copy MiniDiscRes:defaults.Exit <MiniDisc$Choices>.Exit ~C~V");
+
+    Wimp_StartTask("Filer_Run <MiniDisc$Choices>.Exit");
+  }
+
+  MDFilters_Remove();
+
+  Template_ClearAll();  // Remove templates
+
+  /* There is quite likely to be a fair amount of additional tidying-up required here... */
+
+  Wimp_CloseDown((task_handle)d->task);
+
+  // Flag that the Application task has already quit.
+  d->task = NULL;
+
+  // Application is down, so now kill the module as well.
+  regs.r[0] = 0;
+  regs.r[1] = 0;
+  regs.r[2] = 0;
+  regs.r[3] = (int)d->task_name;
+  _kernel_swi(SWI_OS_ExitAndDie, &regs, &regs);  // Program and module both exit here.
+
+
+  return TRUE;  // WE WILL NEVER GET HERE!!!!
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : App_Initialise
+   Purpose   : Main application initialisation code.
+   Status    : Implementation (V1.0.7)
+   V1.0.7    : 15/08/2000 - Bugfix - Hack added to stop garbage appearing on
+                                     screen as MD starts. - I think this has
+                                     something to do with screen variables not
+                                     being set-up correctly. ( ??? how ??? )
+   V1.0.6    : 12/02/2000 - Update - Added code to cope with keyboard events.
+   V1.0.5    : 23/01/2000 - Update - Now reads copyright information from the
+                                     module header.
+   V1.0.4    : 13/01/2000 - Update - Now uses 'IconBar_Initialise'.
+   V1.0.3    : 28/11/1999 - Update - No longer uses the (large) static arrays.
+   V1.0.2    : 14/09/1999 - Bugfix - Now correctly creates iconbar icon.
+   V1.0.1    : 10/09/1999 - Update - Now uses 'SplashWrite', also, implemented
+                                     the 'onStartup' script handler.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL App_Initialise (void)
+{
+  char          spriteFilePath[56],
+                splashFilePath[56],
+                buttonFilePath[56];
+  int           yeigfactor,
+                filesize;
+  int           messageList = 0;
+
+
+  db_fn_begin();
+
+  // Make sure we know what sort of platform we're on...
+  d->OSVersion = XUtil_GetOSVersion();
+
+  // Set-up screen info.
+  db_trace                (100, "Caching screen info.");
+  Screen_CacheModeInfo    ();
+
+  // Application resources initialisation.
+  db_trace                (100, "Setting up resources path info.");
+  Resource_InitialisePath ("MiniDiscRes");
+
+  // Initialise application sprites.
+  /* NOTE: This next bit is not very dynamic, in that it only chooses a spritefile when
+           MiniDisc starts.  If the mode is changed thereafter, you /could/ be using the
+           wrong aspect sprites! */
+  db_trace (100, "Configuring application sprites...");
+  OS_ReadModeVariable (-1, modevar_YEIGFACTOR, &yeigfactor);
+
+  #define MDResSprites "MiniDiscRes:Sprites.<MiniDiscSprite$Dir>"
+
+  sprintf (spriteFilePath, "%s.Sprites%s", MDResSprites, yeigfactor == 1 ? "22" : "");
+  sprintf (splashFilePath, "%s.Splash%s",  MDResSprites, yeigfactor == 1 ? "22" : "");
+  sprintf (buttonFilePath, "%s.Buttons%s", MDResSprites, yeigfactor == 1 ? "22" : "");
+
+  #undef MDResSprites
+
+  filesize  = File_Size(spriteFilePath);
+  filesize += File_Size(splashFilePath);
+  filesize += File_Size(buttonFilePath);
+
+  resource_sprites              = malloc(filesize + 16);
+  resource_sprites->areasize    = filesize + 16;
+  resource_sprites->firstoffset = 16;
+
+  db_trace                (100, "Initialising application sprite area.");
+  Sprite_InitArea         (resource_sprites);
+
+  db_trace                (100, "Loading application sprite files.");
+  Sprite_Load             (resource_sprites, spriteFilePath);
+  Sprite_Merge            (resource_sprites, splashFilePath);
+  Sprite_Merge            (resource_sprites, buttonFilePath);
+
+  // Initialise application messages.
+  db_trace                (100, "Loading messages");
+  Msgs_LoadFile           ("Messages");
+
+
+/* ---- IMPORTANT NOTE: Everything before this next command is NOT within a WIMP task! ---- */
+
+
+  db_trace                (100, "About to initialise WIMP application.");
+
+  Event_Initialise4       (d->task_name, 380, &messageList, &d->task);
+//  Event_Initialise3       (d->task_name, 380, &messageList);
+//  d->task = event_taskhandle;
+//  db_tracef                (100, "%s %d", d->task_name, d->task);
+
+  AppInDesktop = 1;
+
+  // Initialise application templates data.
+  db_trace                (100, "Initialising application window templates.");
+  if (d->task != 0)
+    Template_ClearAll     ();
+  Template_Initialise     ();
+  Template_UseOutlineFonts ();
+  Template_UseSpriteArea  (resource_sprites);
+  db_trace                (100, "Loading application window templates.");
+  Template_LoadFile       ("Templates");
+
+  // Initialise generic event / message handlers
+  stdhandlers_Initialise  ();
+
+  // Inialialise application-wide message handlers.
+  db_trace                (100, "Initialising application-wide message handliers.");
+  EventMsg_Claim          (message_PREQUIT,        event_ANY, App_PreQuit,    NULL);
+  EventMsg_Claim          (message_QUIT,           event_ANY, App_Quit,       NULL);
+  EventMsg_Claim          ((message_action)14,     event_ANY, App_Quit,       NULL); // SHUTDOWN
+  EventMsg_Claim          (message_MENUSDELETED,   event_ANY, noMoreMenus,    NULL);
+  EventMsg_Claim          (MDMsg_ReloadChoices,    event_ANY, reloadChoicesX, NULL);
+
+  TaskSlice_Initialise    ();             /* Initialise startup task slicing code.              */
+  Options_Load            ("<MiniDisc$Options>");  /* Load MiniDisc configuration from disc     */
+  TaskSlice_CreateSplash  ();             /* Display splash dialog                              */
+  Options_CheckPodules    ();             /* Analyse podules installed in the machine           */
+  IconBar_Initialise      ();             /* Put an icon on the iconbar                         */
+  ibMenu_Init             ();             /* Initialise iconbar menu code                       */
+  PsiRiscFS_StartUp       ();             /* PsiRiscFS initialisation                           */
+  IconBar_HideIcons       ();             /* Remove drive icons as necessary                    */
+  MDFilters_Initialise    ();             /* Initialise filter handling...                      */
+  ShareDialog_Initialise  ();             /* Initialise the Share dialog box to catch messages. */
+  Shortcuts_Init          ();             /* Shortcuts startup...                               */
+  Options_StartScript     ();             /* Run the extra startup file (if it exists)          */
+  TaskSlice_Copywright    ();             /* Display the copywright message.                    */
+  ToolBar_Initialise      ();
+
+  MD_ModeHasChanged = FALSE;              /* Initialise mode-change monitor flag                */
+  MD_FilerStarted   = FALSE;
+  d->quit           = FALSE;
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : main
+   Purpose   : PROGRAM ENTRY POINT
+   Status    : Implementation (V1.0.7)
+   v1.0.7    : 03/09/2002 - Bugfix - Now resets the 'filing system started'
+                                     flag, once called.
+   V1.0.6    : 22/01/2001 - Update - Added debugging code.
+   V1.0.5    : 15/08/2000 - Update - General code tidy.
+   V1.0.4    : 10/01/2000 - Update - Now uses app.info structure to select the
+                                     iconbar icon appearance.
+   V1.0.3    : 24/09/1999 - Propper start-up time-slicing code implemented.
+   V1.0.2    : 12/09/1999 - Rewrite of polling loop, now uses PollIdle.
+   V1.0.1    : 10/09/1999 - Now uses the general exit handler.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     : Called on an OSModule_Enter.
+--------------------------------------------------------------------------------
+*/
+int main(int argc, char *argv[])
+{
+  event_pollblock   block;
+  event_pollmask    mask;
+  int               nextTime;
+
+
+  db_fn_begin();
+
+  mask.value = 0;      /* 0x1CB0 - or - 0xC3DBE */
+
+  if (App_Initialise())
+  {
+    db_trace  (80, "Application initialisation complete");
+
+    db_tracef (1, "Module claimed %d bytes of RMA space", sizeof(app_info));
+
+    /* ---------------------------------------------------------------- */
+    /*                                                                  */
+    /*                  Main application polling loop                   */
+    /*                                                                  */
+    /*                                                                  */
+    /*                                                                  */
+    for (nextTime = Time_Monotonic(); d->quit == FALSE; nextTime = Time_Monotonic() + 100)
+    {
+      Wimp_PollIdle3 (mask, &block, nextTime, NULL);
+
+      db_disabled    ();  // DISABLE DEBUGGING
+
+      db_tracef      (80, "Event received : %d", block.type);
+
+      if (block.type == event_NULL)  /* NULL event processing */
+      {
+        if (d->bootStage != windowClosed) TaskSlice_Process();
+
+        IconBar_Update ();
+
+        if (MD_FilerStarted)
+        {
+          IconBar_HideIcons ();
+          Toolbar_Reinit    ();
+          MD_FilerStarted = FALSE;
+        }
+      }
+
+      db_tracef     (80, "Process events... (%d)", event_taskhandle);
+
+      db_enabled    ();  // ENABLE DEBUGGING
+
+      Event_Process (&block);
+    }
+    /*                                                                  */
+    /*                                                                  */
+    /*                                                                  */
+    /* ---------------------------------------------------------------- */
+
+  }
+
+
+  App_Quit (NULL, NULL);  // Tidy up on exit
+
+  db_fn_end();            // This will NEVER happen.
+
+
+  return 0;               // This will NEVER happen.
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: wimptask.c,v $
+   Revision 1.6  2004/04/14 14:44:07  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.5  2003/10/05 16:00:17  jtemple
+   General check-in for release testing.
+
+   Revision 1.4  2003/09/14 11:55:01  jtemple
+   Initialisation / exit code reinforced.
+
+   Revision 1.3  2003/08/10 16:39:25  uid1
+   added cvs tags & re-formatted comments
+
+
+--------------------------------------------------------------------------------
+*/
+
+

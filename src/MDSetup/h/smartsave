@@ -1,0 +1,50 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/smartsave.h                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_SMARTSAVE
+#define MDH_CFG_SMARTSAVE
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_sms_xxxx                                                     *
+ * Purpose   : 'Smart Saver' options pane icon numbers.                        *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_sms_SELECTYPE  3
+#define OW_sms_FILETDESC  4
+#define OW_sms_SPRITE     6
+#define OW_sms_FILETYPE   7
+#define OW_sms_DELETE     9
+#define OW_sms_SET       10
+#define OW_sms_FILEPATH  11
+
+#define OW_ssp_SPRITE     0
+#define OW_ssp_FILETYPE   1
+#define OW_ssp_FILEPATH   2
+#define OW_ssp_BUTTON     3
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  OWFill_SmartSave          (void);
+extern void  OWClose_SmartSave         (void);
+extern void  OWStore_SmartSave         (void);
+extern BOOL  OptionPane_ClickSmartSave (event_pollblock *event, void *reference);
+extern BOOL  OPMenu_SmartSave          (event_pollblock *event, menu_ptr menu);
+extern void  SmartSave_SetEditIcon     (int fileType);
+
+
+#endif

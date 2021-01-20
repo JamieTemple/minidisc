@@ -1,0 +1,53 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/sb-path.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_PATH
+#define MDH_SB_PATH
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Event.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : SD_path_<xxx>                                                   *
+ * Purpose   : Create / update 'path' dialog icon numbers.                     *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 13/02/2000 - Update - Added 'event' buttons.                    *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define SD_path_label    2
+#define SD_path_pathname 4
+#define SD_path_OK       6
+#define SD_path_Cancel   7
+#define SD_path_ruleoff  9
+#define SD_path_Attach  10
+#define SD_path_Edit    11
+#define SD_path_InApps  12
+#define SD_path_noPling 13
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  SCEdit_OP3_SetIcons (window_handle window, char *filename);
+BOOL  SCOP3_DataLoad      (event_pollblock *event, void *reference);
+void  SCEdit_AddPath      (int x, int yPos, shortcuts_menu *item);
+void  SCOK3               (dialog2_block *aDialog);
+void  SCOP3               (dialog2_block *aDialog);
+void  SB_Path_MainWinDrag (BOOL showDialog, event_pollblock *event);
+
+
+#endif
+

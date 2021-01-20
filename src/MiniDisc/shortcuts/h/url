@@ -1,0 +1,38 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : modules/scut-url.h                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SCUT_URL
+#define MDH_SCUT_URL
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "DeskLib:Menu.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  Shortcuts_AddURL      (menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry);
+extern void  Shortcuts_LoadScURL   (char *stringStart, shortcuts_menu *next);
+extern void  Shortcuts_URLAction   (shortcuts_menu *current, event_pollblock *event, int callType);
+extern void  Shortcut_URLDispose   (shortcuts_menu **item);
+extern void  Shortcut_URLAddTBIcon (url_info *scut, int index, char *menuName);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif

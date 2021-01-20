@@ -1,0 +1,95 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/utilities.h,v $
+
+   $Revision: 1.3 $
+   $Date: 2004/04/14 14:44:27 $
+
+   General (oslib-friendly) utility functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef __SHARED_UTILITIES_H
+#define __SHARED_UTILITIES_H
+
+
+#include "global.h"
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+#define KErr _kernel_oserror
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  XUtil_RefreshIB         (void);
+extern int   XUtil_GetOSVersion      (void);
+extern int   XUtil_FindIcon          (char *taskName);    // returns icon number
+extern int   XUtil_TaskGetHandle     (char *taskName);    // returns task handle
+extern char *XUtil_TaskGetName       (int task);
+extern int   XUtil_TaskIs            (int task, char *taskName);
+extern bool  XUtil_OSVarExists       (char *varName);
+extern bool  XUtil_KeyPressed        (int inkey);
+extern bool  XUtil_TaskSendQuit      (char *taskName);
+extern bool  XUtil_spriteExists      (char *spriteName);
+extern bool  XUtil_ModEnsure         (char *moduleName);
+extern bool  XUtil_ModReinit         (char *moduleName);
+extern bool  XUtil_ModKill           (char *moduleName);
+extern bool  XUtil_FileIsDirectory   (char *path);
+extern int   XUtil_GetFileType       (char *path);
+extern int   XUtil_FileExists        (char *path);
+extern char *XUtil_GetLeafName       (char *path);
+extern void  XUtil_SetKeyText        (int value, char *result);
+extern int   XUtil_GetDirSprite      (char *fileName, char *buffer, char *prefix);
+extern void  XUtil_GetBigDirSprite   (char *fileName, char *buffer, char *prefix);
+extern KErr *XUtil_ModEnumerate      (int *module_no, int *instance, char **module, int *pw);
+extern void  XUtil_GetBigFileSprite  (char *fileName, char *buffer, char *prefix, int fileType);
+extern int   XUtil_GetFileSprite     (char *fileName, char *buffer, char *prefix, int fileType);
+extern char *XUtil_CalculateFileIcon (file_info *fileInfo, char **icn_textbuffer,
+                                      char **icn_validstring, unsigned int *icn_bufflen,
+                                      BOOL *icn_halfsize, BOOL *icn_shaded);
+extern void  XUtil_ReadAppMemory     (int task, void *target, void *destn, int size);
+extern void  XUtil_AddCallBack       (void call_back(void), void *handle);
+extern void  XUtil_osclif            (char *format, ...);
+
+
+
+#undef KErr
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // __SHARED_UTILITIES_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: utilities.h,v $
+   Revision 1.3  2004/04/14 14:44:27  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.2  2003/08/10 16:51:55  uid1
+   added cvs tags & re-formatted comments
+
+
+--------------------------------------------------------------------------------
+*/
+
+

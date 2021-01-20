@@ -1,0 +1,245 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/psion.c                                                  *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/psion.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Pane2.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+static menu_ptr  epocDriverMenu = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_Psion                                                    *
+ * Purpose   : Populate the 'Psion' options pane.                              *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 19/02/2000 - Update - Moved pane to accomodate new top pane.    *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_Psion(void)
+{
+  wimp_point    paneOffset;
+  char          aBuffer[buffer_size],
+                iconText[22];
+  BOOL          found;
+
+
+  /* Fill top pane */
+  sprintf(aBuffer, "conf.psid%02d", tempCfg.psion.driver);
+  if (Msgs_Lookup (aBuffer, iconText, 21) == FALSE)
+    Msgs_Lookup  ("err.unknown", iconText, 21);
+  Icon_SetText   (prefspane, OW_psi_DRVNAME,  iconText);
+  Icon_SetSelect (prefspane, OW_psi_INCLUDE, !tempCfg.psion.inMenu);
+  Icon_SetSelect (prefspane, OW_psi_INTBAR,  !tempCfg.psion.inTbar);
+  Icon_SetSelect (prefspane, OW_psi_CONNECT, !tempCfg.psion.autoConnect);
+
+  if (strcmp(tempCfg.psion.appPath, "Undefined") == 0)  /* No driver path found. */
+  {
+    if (tempCfg.psion.driver == 0) found = OS_ReadVarVal ("PsiRisc$Dir", aBuffer, buffer_size);
+    else                           found = OS_ReadVarVal ("PsiFS$Dir",   aBuffer, buffer_size);
+
+    if (!found)
+    {
+      if (tempCfg.psion.driver == 0)
+      {
+        Msgs_Report(0, "err.nopath", "!PsiRisc");
+        Msgs_printf(Icon_GetTextPtr (prefspane, OW_psi_APPPATH), "conf.psidrag", "!PsiRisc");
+      }
+      else
+      {
+        Msgs_Report(0, "err.nopath", "!PsiFS");
+        Msgs_printf(Icon_GetTextPtr (prefspane, OW_psi_APPPATH), "conf.psidrag", "!PsiFS");
+      }
+    }
+    else  Icon_SetText (prefspane, OW_psi_APPPATH, aBuffer);
+  }
+
+  else  /* There SHOULD be something in here, but be careful... */
+  {
+    if (strlen(tempCfg.psion.appPath) < 2 || tempCfg.psion.appPath == NULL)
+    {
+      if (tempCfg.psion.driver == 0)
+        Msgs_printf(Icon_GetTextPtr (prefspane, OW_psi_APPPATH), "conf.psidrag", "!PsiRisc");
+      else
+        Msgs_printf(Icon_GetTextPtr (prefspane, OW_psi_APPPATH), "conf.psidrag", "!PsiFS");
+    }
+
+    else
+      Icon_SetText (prefspane, OW_psi_APPPATH, tempCfg.psion.appPath);
+  }
+
+  /* Create a sub-pane */
+  paneOffset.x   = 8;
+  paneOffset.y   = 388;
+
+  /* Fill the sub-pane */
+  if (tempCfg.psion.driver == 0)  /* PsiRiscFS */
+  {
+    currentPsiPane = psiriscfs;
+    prefsp2        = Pane2_CreateAndAddPane("cfgpsiriscfs", 0, prefswindow, &paneOffset, NULL, 7);
+    Icon_SetSelect (prefsp2, OW_ps0_RAWDRVS, !tempCfg.psion.rawDrives);
+  }
+  else  /* PsiFS */
+  {
+    currentPsiPane = psifs;
+    prefsp2        = Pane2_CreateAndAddPane("cfgpsifs", 0, prefswindow, &paneOffset, NULL, 7);
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWStore_Psion                                                   *
+ * Purpose   : Record options from panes.                                      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 13/03/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWStore_Psion (void)
+{
+  reAssignText (OW_psi_APPPATH, tempCfg.psion.appPath);
+
+  tempCfg.psion.inMenu          = !Icon_GetSelect(prefspane, OW_psi_INCLUDE);
+  tempCfg.psion.inTbar          = !Icon_GetSelect(prefspane, OW_psi_INTBAR);
+  tempCfg.psion.autoConnect     = !Icon_GetSelect(prefspane, OW_psi_CONNECT);
+
+  switch(currentPsiPane)
+  {
+    case psiriscfs:
+      tempCfg.psion.rawDrives   = !Icon_GetSelect(prefsp2, OW_ps0_RAWDRVS);
+      break;
+    case psifs:
+      /* Nothing to do (yet!) */
+      break;
+    default:  /* /Should/ never happen! */
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_Psion                                                   *
+ * Purpose   : Record options from panes, then close them.                     *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 13/03/2002 - Update - Now calls OWStore_Psion instead.          *
+ * V1.0.1    : 11/09/1999 - Added iconbar icon & printer options               *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_Psion (void)
+{
+  OWStore_Psion    ();
+  Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp2));
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_MenuPsionDriver                                      *
+ * Purpose   : Process clicks in the 'Psion Driver' configuration menu.        *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 14/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_MenuPsionDriver (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  BOOL         found;
+  char         pathBuffer[buffer_size];
+
+
+  tempCfg.psion.driver = event->data.selection[0];
+
+  /* (Because the DeskLib Fn won't allow for existence checking without a var buffer.) */
+  if (tempCfg.psion.driver == 0) found = OS_ReadVarVal ("PsiRisc$Dir", pathBuffer, buffer_size);
+  else                           found = OS_ReadVarVal ("PsiFS$Dir",   pathBuffer, buffer_size);
+
+  if (!found)
+  {
+    if (tempCfg.psion.driver == 0)
+    {
+      Msgs_Report(0, "err.nopath", "!PsiRisc");
+      Msgs_printf(Icon_GetTextPtr (prefspane, OW_psi_APPPATH), "conf.psidrag", "!PsiRisc");
+    }
+    else
+    {
+      Msgs_Report(0, "err.nopath", "!PsiFS");
+      Msgs_printf(Icon_GetTextPtr (prefspane, OW_psi_APPPATH), "conf.psidrag", "!PsiFS");
+    }
+  }
+  else  Icon_SetText (prefspane, OW_psi_APPPATH, pathBuffer);
+  reAssignText (OW_psi_APPPATH, tempCfg.psion.appPath);
+
+  Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp2));
+  OWFill_Psion     ();
+  Pane2_OpenWindow (prefswindow, NULL);
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_SetFlags (menu, 0, tempCfg.psion.driver == 0 ? 1 : 0, 0);
+    Menu_SetFlags (menu, 1, tempCfg.psion.driver == 1 ? 1 : 0, 0);
+    Menu_ShowLast ();
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_Click                                                *
+ * Purpose   : Process clicks upon buttons in the options pane.                *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 05/12/1999 - Update - No longer uses Message structure.         *
+ * V1.0.1    : 14/09/1999 - Added /propper/ Select/Adjust action type handler. *
+ * V1.0.0    : 11/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_ClickPsion (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  if (event->data.mouse.window == prefspane)
+  {
+    switch (event->data.mouse.icon)
+    {
+      case OW_psi_DRIVER:
+        if (epocDriverMenu == NULL)
+        {
+          epocDriverMenu = Msgs_MenuNew("conf.psidt", "conf.psid");
+
+          Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                       (void *)(1 | ((int)epocDriverMenu << 4)));
+        }
+        Menu_SetFlags (epocDriverMenu, tempCfg.psion.driver, 1, 0);
+
+        Menu_PopUp    (epocDriverMenu, prefspane, OW_psi_DRIVER);
+        break;
+
+      case OW_psi_INCLUDE:
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+

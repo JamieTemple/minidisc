@@ -1,0 +1,733 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/modules/cdfs.c,v $
+
+   $Revision: 1.3 $
+   $Date: 2003/10/05 16:00:45 $
+
+   CDFS specific code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "MiniDisc/modules/cdfs.h"
+#include "MiniDisc/modules/filecore.h"
+
+#include "shared/utilities.h"
+
+#include "shared/desklib.h"
+
+#include "MiniDisc/core/hideicons.h"
+#include "MiniDisc/core/toolbar.h"
+#include "MiniDisc/core/oslib-menu.h"
+#include "minidisc/core/sharedlg.h"
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+
+#include "oslib/cd.h"
+#include "oslib/cdfs.h"
+#include "oslib/osfile.h"
+#include "oslib/osfscontrol.h"
+#include "oslib/wimp.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   External function prototypes
+--------------------------------------------------------------------------------
+*/
+/* NOTE: The next two lines are copies of those in /modules/cdfs.h */
+extern void CDFS2_OpenDialogs      (void *event, int value);
+extern void CDFS_FollowControlMenu (void *event, char *fsn_desc, int drivenum);
+extern void CDFS_TBHandler         (void *event, void *reference);
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global variables
+--------------------------------------------------------------------------------
+*/
+
+
+#define isCDROMFS (XUtil_ModEnsure("CDROMFS") && MDCfg->cdfs.cdromfs == 0)
+#define cdFsnString (isCDROMFS ? "CDROMFS:" : "CDFS:")
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_BuildBlock
+   Purpose   : Build a CDFS control block for CD SWI calls.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/02/2000 - Preliminary implementation.
+   Notes     : CDROMFS checked, OK.
+--------------------------------------------------------------------------------
+*/
+void CDFS_BuildBlock(cd_control_block *block, int drive)
+{
+  int               PhysicalDevice;
+  _kernel_oserror  *swiErr;
+  _kernel_swi_regs  regs;
+
+
+  db_fn_begin();
+
+  if (isCDROMFS)
+  {
+    regs.r[0] = drive;
+    swiErr = _kernel_swi(0x0529c0, &regs, &regs); /* CDROMFS_ConvertDriveToDevice */
+    PhysicalDevice = regs.r[0];
+  }
+  else
+    xcdfs_convert_drive_to_device(drive, &PhysicalDevice);
+
+  block->reserved[0] =  (PhysicalDevice &        0x7);        /* Device */
+  block->reserved[1] = ((PhysicalDevice &       0x18) >>  3); /* Card   */
+  block->reserved[2] = ((PhysicalDevice &       0xE0) >>  5); /* Unit   */
+  block->reserved[3] = ((PhysicalDevice &     0xFF00) >>  8); /* Rsvd   */
+  block->reserved[4] = ((PhysicalDevice & 0xFFFF0000) >> 16); /* Rsvd   */
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_PlayAudio
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void CDFS_PlayAudio(int drivenum)
+{
+  char              aString[buffer_size];
+  cd_control_block  block;
+  os_error         *anErr;
+
+
+  db_fn_begin();
+
+  anErr = xosfile_read_stamped_no_path(MDCfg->cdfs.playerPath, NULL,NULL,NULL,NULL,NULL,NULL);
+
+  if (anErr == NULL)
+  {
+    db_trace(1, "Found a player");
+
+    sprintf(aString, "Filer_Run %s", MDCfg->cdfs.playerPath);
+    xwimp_start_task(aString, NULL);
+  }
+  else  // Just start playing audio...
+  {
+    db_trace(1, "No player found!");
+
+    CDFS_BuildBlock(&block, drivenum);
+    xcd_play_track (1, 0xffu, &block);
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_ClickControlMenu
+   Purpose   : Handles 'click' events on the CDFS drive control menu.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 22/06/2002 - Update - Now verifies player app path before use.
+   V1.0.3    : 19/02/2000 - Update - Added dialogs support.
+   V1.0.2    : 29/01/2000 - Update - Added support for 'Remove & Restore'
+   V1.0.1    : 28/11/1999 - Update - Shrunk array size to something sensible.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : Note: Until such time as I can be bothered to restructure this
+               code so that it only has one exit point, there are no debugging
+               function entry / exit handlers.
+--------------------------------------------------------------------------------
+*/
+static bool check_msg(char *tag, char *menuText)
+{
+  Msgs_Lookup (tag, MD_tmp, buffer_size - 1);
+
+  return (strncmp(menuText, MD_tmp, strlen(MD_tmp)) == 0);
+}
+
+void CDFS_ClickControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  char              aString[buffer_size],
+                    discName[27];
+  char             *menuText = MenuGet_TextAtLevel(event, 1, 0);
+  cd_control_block  block;
+  int               value = MenuGet_SubMenuValue(event, 1);
+
+
+  if (value == 0 && check_msg("m.audi", menuText))   // Open drive
+  {
+    db_tracef(1, "Filer_OpenDir %s:%d.$",  fsn_desc, drivenum);
+
+    sprintf(aString, "%s:%d.$", fsn_desc, drivenum);
+    discName[0] = 0;
+    xosfscontrol_canonicalise_path (aString, discName, NULL, "$", 27, NULL);
+    XUtil_osclif("Filer_OpenDir %s", discName);
+  }
+
+  else if (strncmp(menuText, aString, strlen(aString)) == 0)            // Audio player option.
+  {
+    CDFS_PlayAudio(drivenum);
+  }
+
+  else if (check_msg("m.dism", menuText))                               // Dismount
+  {
+    XUtil_osclif("%s:Dismount %d", fsn_desc, drivenum);
+    XUtil_osclif("Filer_CloseDir %s::%d", fsn_desc, drivenum);
+  }
+
+  else if (check_msg("m.ejec", menuText))                               // Eject
+  {
+    XUtil_osclif("%s:Dismount %d", fsn_desc, drivenum);
+    XUtil_osclif("Filer_CloseDir %s::%d", fsn_desc, drivenum);
+    CDFS_BuildBlock(&block, drivenum);
+    cd_open_drawer (&block);
+  }
+
+  else if (check_msg("m.clos", menuText))                               // Close
+  {
+    CDFS_BuildBlock(&block, drivenum);
+    cd_close_drawer(&block);
+  }
+
+  else if (check_msg("m.conf", menuText))                               // Configure
+  {
+    CDFS2_OpenDialogs(event, value);
+  }
+
+  else if (check_msg("m.shar", menuText))                               // Share
+  {
+    FileCore_Share(fsn_desc, drivenum);
+  }
+
+  else if (check_msg("m.volu", menuText))                               // Volume
+  {
+    CDFS2_OpenDialogs(event, value);
+  }
+
+  else
+  {
+    // Restore
+    Msgs_printf (aString, "menu.restore", "CDFS");                  // Build message
+    if (strcmp(aString, menuText) == 0)                             // Compare menu text...
+    {
+      IconBar_RestoreIcon ("CDFSFiler");                            // Restore filer icons
+      Msgs_printf         (aString, "menu.remove", "CDFS");         // Build message
+      MenuUpdate_Item     (event, 7, aString);
+      return;
+    }
+
+    // Remove
+    Msgs_printf (aString, "menu.remove", "CDFS");                   // Build message
+    if (strcmp(aString, menuText) == 0)                             // Compare menu text...
+    {
+      IconBar_HideIcon    ("CDFSFiler");
+      Msgs_printf         (aString, "menu.restore", "CDFS");        // Build message
+      MenuUpdate_Item     (event, 7, aString);
+      return;
+    }
+  }
+
+  return;  /* SHOULD NOT GET HERE, /EVER!/ */
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_IsAudio
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int CDFS_IsAudio (int drive)
+{
+  cd_control_block             block;
+  cd_enquire_all_tracks_block  info;
+  cd_enquire_one_track_block   info2;
+  bool                         audioData = FALSE,
+                               rawData   = FALSE;
+  int                          i,
+                               rVal;
+  cd_audio_flags               flags;
+  os_error                   *err;
+
+
+  db_fn_begin();
+
+  CDFS_BuildBlock (&block, drive);  /* Setup CDFS control block */
+
+  err = xcd_enquire_all_tracks(&info, &block);
+
+  if (err == NULL)
+  {
+    for (i=info.first_track; i <= info.last_track; i++)
+    {
+      xcd_enquire_one_track(i, &info2, &block);
+      flags = info2.audio_control & 0x03;   /* Mask out the junk. */
+      switch(flags)
+      {
+        case cd_AUDIO: audioData = TRUE;  break;
+        case  cd_DATA: rawData   = TRUE;  break;
+        default:                          break;
+      }
+    }
+  }
+  else
+  {
+    Error_Report(err->errnum, err->errmess);
+    rVal = -1;
+  }
+
+  if (audioData) rVal = 1;
+  else           rVal = 0;
+  if (rawData)   rVal = rVal + 2;
+
+  db_fn_end();
+
+
+  return rVal;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_Follow
+   Purpose   : CDFS control menu warning processor.                   
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 10/02/2001 - Bugfix - Now correctly decides if we should
+                                     display control submenus or not.
+   V1.0.0    : 20/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define AddMenuItem(msg, aMenu, writable, more)  \
+  {                                              \
+    if (writable)  strcat (aMenu, ">");          \
+    Msgs_Lookup (msg, bNewMenu, 259);            \
+    strcat      (aMenu, bNewMenu);               \
+    if (more)  strcat(aMenu, ",");               \
+  }
+
+void CDFS_Follow(char *fsn_desc, int drivenum, void *event)
+{
+  char      filePath[12],
+            discName[27],
+            lastItem[32],
+            aNewMenu[260],
+            bNewMenu[260];
+  int       subMenuLevel,
+            dataType;
+  bool      altPressed, /* Alt check */
+            controlMenu  = TRUE, /* Default: show control menu */
+            audio        = FALSE,
+            data         = FALSE;
+  void     *aMenu,
+           *aSubMenuPtr;
+
+
+  db_fn_begin();
+
+  subMenuLevel = MenuGet_SubMenuLevel(event);
+  altPressed   = XUtil_KeyPressed(-3);
+
+  discName[0] = 0;  /* Flag name as empty string */
+
+  if (MDCfg->misc.hideControl == 0 && !altPressed)  controlMenu = FALSE;
+  if (MDCfg->misc.hideControl == 1 &&  altPressed)  controlMenu = FALSE;
+
+
+  switch(subMenuLevel)
+  {
+    case 0:
+      if (controlMenu)  /* Show CDFS control submenu */
+      {
+        controlMenuOpen = TRUE;
+
+        aSubMenuPtr = MenuGet_SubMenuAddress (event);         /* Locate sub-menu pointer address  */
+        if (*(int *)aSubMenuPtr > 1)                          /* If pointer is valid, then...     */
+          MenuDump((void *)(*(int *)aSubMenuPtr));            /* Dispose of attached menu, then...*/
+        *(int *)aSubMenuPtr = 1;                              /* flag pointer as invalid.         */
+
+        aNewMenu[0] = 0;
+
+
+        /* (so-called) intelligent auto-detect code. */
+        dataType = CDFS_IsAudio (drivenum);
+        if ((dataType & 0x01) == 1) audio = TRUE;
+        if ((dataType & 0x02) == 2) data  = TRUE;
+
+
+        if (data)  /* 00 : Drive submenu - Data */
+        {
+          sprintf(filePath, "%s:%d.$", fsn_desc, drivenum);
+          xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL);
+          sprintf(aNewMenu, ">%s", discName);
+        }
+        if (!data && !audio)
+        {
+          sprintf(discName,  "%s:%d", fsn_desc, drivenum);
+          sprintf(aNewMenu, "~%s:%d", fsn_desc, drivenum);
+        }
+
+
+        if (audio || MDCfg->cdfs.autoDetect)                      /* 01 : Audio Player         */
+        {
+          if (data)  strcat(aNewMenu, ",");
+          Msgs_Lookup ("m.audi", bNewMenu, 259);
+          strcat      (aNewMenu, bNewMenu);
+          if (discName[0] == 0)  sprintf(discName, "%s:%d", fsn_desc, drivenum);
+        }
+
+        strcat (aNewMenu, "|");                                   /* --------- Dash ---------- */
+
+        if ((dataType > 0 && !MDCfg->cdfs.autoDetect) || MDCfg->cdfs.autoDetect)
+        {
+          AddMenuItem ("m.dism", aNewMenu, FALSE, TRUE);          /* Dismount */
+          AddMenuItem ("m.ejec", aNewMenu, FALSE, TRUE);          /* Eject */
+        }
+
+        if ((dataType == 0 && !MDCfg->cdfs.autoDetect) || MDCfg->cdfs.autoDetect)  /* Close */
+          AddMenuItem ("m.clos", aNewMenu, FALSE, TRUE);
+
+        AddMenuItem ("m.conf", aNewMenu, TRUE, TRUE);             /* Configure                 */
+
+        if (!XUtil_ModEnsure("Freeway")) strcat (aNewMenu, "~");  /* Share disabled. */
+
+        AddMenuItem ("m.shar", aNewMenu, FALSE, TRUE);
+
+        AddMenuItem ("m.volu", aNewMenu, TRUE, FALSE);            /* Volume                    */
+
+        strcat (aNewMenu, "|");                                   /* --------- Dash ---------- */
+
+        if (XUtil_TaskGetHandle ("CDFS Filer") == NULL)           /* Remove / Restore icons    */
+              Msgs_printf (lastItem, "menu.restore", "CDFS");
+        else  Msgs_printf (lastItem, "menu.remove",  "CDFS");
+        strcat (aNewMenu, lastItem);
+
+        aMenu = MenuAttach_Sub(discName, aNewMenu, event);        /* Build the control menu */
+      }
+
+      else  /* Show root menu for filecore drive */
+      {
+        controlMenuOpen = FALSE;
+
+        aSubMenuPtr = MenuGet_SubMenuAddress (event);         /* Locate sub-menu pointer address  */
+        if (*(int *)aSubMenuPtr > 1)                          /* If pointer is valid, then...     */
+          MenuDump((void *)(*(int *)aSubMenuPtr));            /* Dispose of attached menu, then...*/
+        *(int *)aSubMenuPtr = 1;                              /* flag pointer as invalid.         */
+
+        dirMenu_SetFlags  ();
+        dirMenu_FromDrive (event, FALSE);
+      }
+      break;
+
+    case 1:
+      if(controlMenuOpen)
+        CDFS_FollowControlMenu (event, fsn_desc, drivenum);
+      else
+      {
+        dirMenu_SetFlags  ();
+        dirMenu_FromDrive (event, FALSE);
+      }
+      break;
+
+    default:
+      dirMenu_SetFlags  ();
+      dirMenu_FromDrive (event, FALSE);
+      break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_Actions
+   Purpose   :                                                         
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void CDFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  int  subMenuLevel;
+
+
+  db_fn_begin();
+
+  switch(mevent)
+  {
+    case click:
+      subMenuLevel = MenuGet_SubMenuLevel(event);
+
+      db_tracef(10, "CDFS menu (level %d) clicked on.");
+
+      switch(subMenuLevel)
+      {
+        case 0:   /* A MiniDisc main menu click. */
+          switch(CDFS_IsAudio (drivenum))
+          {
+            case 1:  /* Audio disc */
+              db_trace(10, "CDFS thinks this is an audio disc");
+              CDFS_PlayAudio (drivenum);
+              break;
+
+            case 3:  /* Mixed-mode. */
+              db_trace(10, "CDFS thinks this is a mixed-mode disc");
+              CDFS_PlayAudio (drivenum);
+
+            case 2:  /* Data disc */
+              db_trace(10, "CDFS thinks this is a data disc");
+              FileCore_OpenRoot (fsn_desc, drivenum, MenuGet_TextAtLevel(event, 0, 0));
+              break;
+
+            default:  /* God knows! */
+              // Maybe we should raise an error at this point. (?)
+              db_warn(10, "UNKNOWN CDFS DISC TYPE RETURNED!");
+              break;
+          }
+          break;
+
+        case 1:   /*  */
+        case 2:   /*  */
+          if (controlMenuOpen)
+            CDFS_ClickControlMenu(event, fsn_desc, drivenum);
+          else
+            dirMenu_Click (event);
+          break;
+
+        default:  /*  */
+          dirMenu_Click (event);
+          break;
+      }
+//      FileCore_ClickGeneric (mevent, fsn_desc, drivenum, event, CDFS_ClickControlMenu);
+      break;
+
+    case follow:
+      CDFS_Follow (fsn_desc, drivenum, event);
+      break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_ListDrives
+   Purpose   :                                                         
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 28/11/1999 - Update - Now uses a sensible array size.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *CDFS_ListDrives (void *mainmenu)
+{
+  char              buffer[8];
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *swiErr;
+  int               CDDriveCount = 0;
+
+
+  db_fn_begin();
+
+  if (isCDROMFS)
+  {
+    db_trace (100, "Diaplaying CDROMFS drives in main MD menu");
+    swiErr =  _kernel_swi(0x0529c3, &regs, &regs); /* CDROMFS_GetNumberOfDrives */
+  }
+  else
+  {
+    db_trace (100, "Diaplaying CDFS drives in main MD menu");
+    swiErr =  _kernel_swi(0x041e84, &regs, &regs); /* CDFS_GetNumberOfDrives */
+  }
+
+  if (swiErr == NULL)  // Error means No CDFS / CDROMFS, so don't put anything in the main menu.
+  {
+    CDDriveCount = regs.r[0];
+
+    for (; CDDriveCount > 0; CDDriveCount--)
+    {
+      DriveMenuSize++;
+      sprintf(buffer, "%s:%d", cdFsnString, CDDriveCount - 1);
+      mainmenu = FileCore_MenuExtend(mainmenu, buffer, "smd_cd", cdFsnString, CDDriveCount - 1);
+
+      proceduresInfo[DriveMenuSize].proc_ptr = CDFS_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = CDDriveCount - 1;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, cdFsnString);
+    }
+  }
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_GetVolAsPercent
+   Purpose   : Read the current audio volume levels as an integer. (0-99)
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 19/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int CDFS_GetVolAsPercent(int driveNum)
+{
+  cd_control_block     block;
+  cd_volume_block      vBlock;
+  cd_audio_completion  cmp;
+  int                  level;
+
+
+  db_fn_begin();
+
+  CDFS_BuildBlock(&block, driveNum);
+
+  xcdgetaudioparms_volume_block(&vBlock, &block, &cmp);
+
+  level = (int)((float)vBlock.volume[1] * (100.0 / (float)cd_VOLUME_LIMIT));
+
+  if (level > 100)  level = 100;
+
+  db_fn_end();
+
+
+  return level;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_SetVol
+   Purpose   : Set the audio volume output levels for a specified CD drive.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 19/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void CDFS_SetVol (int driveNum, int volume)
+{
+  _kernel_swi_regs     regs;
+  cd_control_block     block;
+  cd_volume_block      vBlock;
+
+
+  db_fn_begin();
+
+  CDFS_BuildBlock(&block, driveNum);
+
+  vBlock.volume[0] = (int)volume;
+  vBlock.volume[1] = (int)volume;
+  regs.r[0]        = 0;
+  regs.r[1]        = (int) &vBlock;
+  regs.r[6]        = 0;  /* Not sure if we need this. */
+  regs.r[7]        = (int) &block;
+
+  (void) _kernel_swi(XCD_SetAudioParms, &regs, &regs);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CDFS_AddTBIcons
+   Purpose   :                                                         
+   Status    : Development
+   Notes     : CDROMFS checked, OK.
+--------------------------------------------------------------------------------
+*/
+void CDFS_AddTBIcons (void)
+{
+  char              buffer[11];
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *swiErr;
+  int               CDDriveCount = 0;
+
+
+  db_fn_begin();
+
+  if (MDCfg->cdfs.inTbar == 0)
+  {
+    if (isCDROMFS)
+      swiErr = _kernel_swi(0x0529c3, &regs, &regs); // CDROMFS_GetNumberOfDrives
+    else
+      swiErr = _kernel_swi(0x041e84, &regs, &regs); // CDFS_GetNumberOfDrives
+
+    if (swiErr == NULL)  // CDFS found.
+    {
+      CDDriveCount = regs.r[0];
+
+      for (; CDDriveCount > 0; CDDriveCount--)
+      {
+        sprintf(buffer, "%s:%d", cdFsnString, CDDriveCount - 1);
+        FileCore_AddTBIcon("md_cd", "cddisc", buffer, cdFsnString, CDDriveCount - 1);
+      }
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: cdfs.c,v $
+   Revision 1.3  2003/10/05 16:00:45  jtemple
+   General check-in for release testing.
+
+   Revision 1.2  2003/09/13 20:25:28  jtemple
+   Code comments tidied.
+   Debugging fn entry/exit handlers added.
+   ListDrives code more tolerant of SWI errors.
+   Fix for volume returning values > 100%
+
+
+--------------------------------------------------------------------------------
+*/
+
+
+

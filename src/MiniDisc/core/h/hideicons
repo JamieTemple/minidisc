@@ -1,0 +1,48 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/hideicons.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:03 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef MDH_HIDEICONS
+#define MDH_HIDEICONS
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void IconBar_RestoreIcons   (void);
+extern void IconBar_RestoreIcon    (char  *moduleName);
+extern void IconBar_HideIcons      (void);
+extern void IconBar_HideIcon       (char  *moduleName);
+extern void IconBar_HideAppIcon    (char *TaskName);
+extern void IconBar_RestoreAppIcon (char *TaskName);
+extern void IconBar_FilerQuit      (char **moduleName);
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: hideicons.h,v $
+   Revision 1.2  2003/10/05 16:00:03  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

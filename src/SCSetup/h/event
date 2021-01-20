@@ -1,0 +1,56 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/event.h                                               *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_EVENT
+#define MDH_SB_EVENT
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : <OW Various>                                                    *
+ * Purpose   : Options windows/panes icon numbers                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define SD_evnt_Keyboard  2
+#define SD_evnt_WIMP      3
+#define SD_evnt_Cancel    4
+#define SD_evnt_OK        5
+#define SD_evnt_KeyVal    6
+#define SD_evnt_WIMPMsg   8
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * --------------------------------------------------------------------------- */
+extern shortcuts_menu_head  currentEdit;
+extern dialog2_block       *eventsDialog;
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern BOOL  SCEdit_EWH           (event_pollblock *event,
+                                                int              wb_src_Edit,
+                                                int              wb_src_Attach,
+                                                int              wb_src_Cancel,
+                                                MD_event_type   *e_type,
+                                                void            *event2);
+extern void  eventsDialog_Dispose    (void);
+extern void  eventsDialog_SetKeyText (int value, char *result);
+
+
+#endif
+

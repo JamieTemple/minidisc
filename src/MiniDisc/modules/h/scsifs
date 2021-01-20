@@ -1,0 +1,41 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/modules/scsifs.h,v $
+
+   $Revision: 1.1 $
+   $Date: 2004/04/14 14:44:21 $
+
+   SCSIFS support interface.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_SCSIFS
+#define MDH_SCSIFS
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void *SCSIFS_ListDrives (char *device_name, int hard, int floppy, void *mainmenu);
+extern void  SCSIFS_AddTBIcons (void);
+
+
+#endif
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: scsifs.h,v $
+   Revision 1.1  2004/04/14 14:44:21  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+
+--------------------------------------------------------------------------------
+*/

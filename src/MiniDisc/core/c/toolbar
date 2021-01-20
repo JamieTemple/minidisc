@@ -1,0 +1,1020 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/toolbar.c,v $
+
+   $Revision: 1.4 $
+   $Date: 2004/04/14 14:44:06 $
+
+   Toolbar creation / management code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "minidisc/core/toolbar.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "MiniDisc/core/ModHdr.h"
+
+#include "MiniDisc/core/shortcuts.h"
+
+#include "MiniDisc/modules/armtcp.h"
+#include "MiniDisc/modules/cdfs.h"
+#include "MiniDisc/modules/filecore.h"
+#include "MiniDisc/modules/memfs.h"
+#include "MiniDisc/modules/psion.h"
+#include "MiniDisc/modules/printer.h"
+#include "MiniDisc/modules/resfs.h"
+#include "MiniDisc/modules/sharefs.h"
+#include "MiniDisc/modules/hostfs.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Font.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:WimpMsg.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Time.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macros
+--------------------------------------------------------------------------------
+*/
+#define TB_VERTICAL     0
+#define TB_HORIZONTAL   1
+
+#define TB_LEFT         0
+#define TB_RIGHT        1
+
+#define TB_xHotSpot    32
+#define TB_yHotSpot    16
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables
+--------------------------------------------------------------------------------
+*/
+ToolBar_Buttons  tbButtons[MaxToolbarButtons];
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global Variables
+--------------------------------------------------------------------------------
+*/
+static int            tbCount,
+                      mousev_queue          = 0,
+                      toolbarOpen           = FALSE,
+                      tipsWinOpen           = FALSE,
+                      altispressed          = FALSE,
+
+                      toolbarHeight         = 0,
+                      toolbarWorkAreaHeight = 2000,
+
+                      toolbarYSize          = 0,
+                      toolbarBWidth         = 0,
+
+                      toolbarWidth          = 0,
+                      toolbarYPos           = 0;
+
+static window_handle  toolbarWin            = NULL,
+                      toolbarInfo           = NULL;
+
+static wimp_point     mousePos              = {0, 0};  /* To compare pervious mouse pos to MouseV */
+
+static wimp_rect      toolbarPos;
+
+static char           TB__emptyString[]     = {""};
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_Message
+   Purpose   : Sends a MiniDisc message to the WIMP app.
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void ToolBar_Message(message_action action)
+{
+  message_block  message;
+
+
+  db_fn_begin();
+
+  message.header.size    = sizeof(message_header);
+  message.header.sender  = d->task;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = action;
+
+  Wimp_SendMessage(event_SEND, &message, d->task, NULL);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : getScreenWidth
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int getScreenWidth(void)
+{
+  _kernel_swi_regs  regs;
+  int               sWidth;
+
+
+  db_fn_begin();
+
+  regs.r[0] = -1;
+  regs.r[1] = 11;
+  (void) _kernel_swi(0x035, &regs, &regs);
+  sWidth = regs.r[2];
+
+  regs.r[1] = 4;
+  (void) _kernel_swi(0x035, &regs, &regs);
+
+  db_fn_end();
+
+
+  return sWidth << regs.r[2];
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_SetOpenPos
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void ToolBar_SetOpenPos(wimp_box *coords)
+{
+  db_fn_begin();
+
+  switch (MDCfg->toolbar.orientation)
+  {
+    case TB_VERTICAL:
+      /* Should be able to cope with other positions etc... */
+      coords->min.x = toolbarPos.min.x;
+      coords->max.x = toolbarPos.max.x;
+      coords->min.y = toolbarYPos;
+      coords->max.y = toolbarYPos + toolbarHeight;
+      break;
+
+    case TB_HORIZONTAL:
+      break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_Open
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void ToolBar_Open(void)
+{
+  window_state  wstate;
+
+
+  db_fn_begin();
+
+  Wimp_GetWindowState (toolbarWin, &wstate);
+
+  wstate.openblock.behind = -1;  // open in front
+
+  ToolBar_SetOpenPos(&wstate.openblock.screenrect);
+
+  Wimp_OpenWindow (&wstate.openblock);
+
+  toolbarOpen = TRUE;
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_PosInit
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void ToolBar_PosInit(void)
+{
+  db_fn_begin();
+
+  if (MDCfg->toolbar.bigButtons == 0)
+  {
+    toolbarYSize  =  88;    /* Height of each toolbar button.            */
+    toolbarBWidth =  96;    /* Width of each toolbar button.             */
+
+    toolbarYPos   = 136;    /* y = 136 - ?max                            */
+    toolbarWidth  =  96;    /* x = 0-96                                  */
+  }
+  else
+  {
+    toolbarYSize  =  64;    /* Height of each toolbar button.            */
+    toolbarBWidth =  72;    /* Width of each toolbar button.             */
+
+    toolbarYPos   = 136;    /* y = 136 - ?max                            */
+    toolbarWidth  =  72;    /* x = 0-72                                  */
+  }
+
+
+  switch (MDCfg->toolbar.orientation)
+  {
+    case TB_VERTICAL:
+      switch(MDCfg->toolbar.align)
+      {
+        case TB_LEFT:
+          toolbarPos.min.x = 0;
+          toolbarPos.max.x = toolbarPos.min.x + toolbarWidth;
+          break;
+
+        case TB_RIGHT:
+          toolbarPos.max.x = getScreenWidth();
+          toolbarPos.min.x = toolbarPos.max.x - toolbarWidth;
+          break;
+      }
+      toolbarPos.min.y = toolbarYPos;
+      toolbarPos.max.y = toolbarYPos;
+      break;
+
+    case TB_HORIZONTAL:
+      break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : mouse_OutsideTBAreaHidden
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL mouse_OutsideTBAreaHidden(int xpos, int ypos)
+{
+  switch (MDCfg->toolbar.orientation)
+  {
+    case TB_VERTICAL:
+      if (ypos < toolbarYPos + TB_yHotSpot)                  return TRUE;  /* Below toolbar    */
+      if (ypos > toolbarYPos + TB_yHotSpot + toolbarHeight)  return TRUE;  /* Above toolbar    */
+
+      if (MDCfg->toolbar.displayPos == 0)
+      {
+        if (xpos < toolbarPos.min.x - TB_xHotSpot)           return TRUE;  /* Left of toolbar  */
+        if (xpos > toolbarPos.max.x + TB_xHotSpot)           return TRUE;  /* Right of toolbar */
+      }
+      else
+      {
+        switch(MDCfg->toolbar.align)
+        {
+          case TB_LEFT:
+            if (xpos != 0)                                   return TRUE;  /* Edge of screen   */
+            break;
+
+          case TB_RIGHT:
+            if (xpos < getScreenWidth() - 4)                 return TRUE;  /* Edge of screen   */
+            break;
+        }
+      }
+      break;
+
+    case TB_HORIZONTAL:
+      break;
+  }
+
+
+  return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : mouse_InsideTBAreaOpen
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL mouse_InsideTBAreaOpen(int xpos, int ypos)
+{
+  window_state  wstate;
+  BOOL          retVal;
+
+
+  db_fn_begin();
+
+  Wimp_GetWindowState(toolbarWin, &wstate);
+
+  if ((ypos >= wstate.openblock.screenrect.min.y - TB_yHotSpot) &&
+      (ypos <= wstate.openblock.screenrect.max.y + TB_yHotSpot) &&
+      (xpos >= wstate.openblock.screenrect.min.x - TB_xHotSpot) &&
+      (xpos <= wstate.openblock.screenrect.max.x + TB_xHotSpot))
+        retVal = TRUE;
+
+  else  retVal = FALSE;
+
+  db_fn_end();
+
+
+  return retVal;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_HideTips
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_HideTips (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  Window_Hide(toolbarInfo);
+
+  tipsWinOpen = FALSE;
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_Hide
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_Hide (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  Window_Hide (toolbarWin);
+  Window_Hide (toolbarInfo);
+
+  toolbarOpen = FALSE;
+  tipsWinOpen = FALSE;
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_AltHit
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_AltHit (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  ToolBar_Hide (event, reference);
+
+  altispressed = TRUE;
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_DataLoad
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_DataLoad (event_pollblock *event, void *reference)
+{
+  mouse_block  ptr;
+  BOOL        retVal;
+
+
+  db_fn_begin();
+
+  if (MDCfg->toolbar.hideWhen == 1)
+    ToolBar_Message(MDMsg_ToolbarAlt);
+
+  Wimp_GetPointerInfo(&ptr);
+
+  if (tbButtons[ptr.icon].function != NULL)
+        retVal = ((event_handler)tbButtons[ptr.icon].function)(event, (void *)0);
+  else  retVal = TRUE;
+
+  db_fn_end();
+
+
+  return retVal;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_DataSave
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_DataSave (event_pollblock *event, void *reference)
+{
+  mouse_block ptr;
+  BOOL        retVal;
+
+
+  db_fn_begin();
+
+  Wimp_GetPointerInfo(&ptr);
+
+  if (tbButtons[ptr.icon].function != NULL)
+       retVal = ((event_handler)tbButtons[ptr.icon].function)(event, (void *)1);
+  else retVal = TRUE;
+
+  db_fn_end();
+
+
+  return retVal;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_Click
+   Purpose   :
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_Click (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  if (MDCfg->toolbar.hideWhen == 1)
+    ToolBar_Message(MDMsg_ToolbarAlt);
+
+  if (tbButtons[event->data.mouse.icon].function != NULL)
+    ((event_handler)tbButtons[event->data.mouse.icon].function)(event, (void *)2);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_PopUp
+   Purpose   : Display the toolbar button 'tip' text close to the pointer.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 27/08/2002 - Update - Now uses Wimp_TextOp to calculate the
+                                     tips window width.
+   V1.0.1    : 08/09/2001 - Bugfix - Now uses some decent code for calculating
+                                     the width of the text icon (& window).
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL ToolBar_PopUp (event_pollblock *event, void *reference)
+{
+  window_state      wstate;
+  mouse_block       ptr;
+  int               stringWidth = 0;
+  _kernel_swi_regs  r;
+
+
+  db_fn_begin();
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.icon >= 0)
+  {
+    Icon_SetText (toolbarInfo, 0, tbButtons[ptr.icon].helpText);
+
+    r.r[0] = 1;
+    r.r[1] = (int) tbButtons[ptr.icon].helpText;
+    r.r[2] = 0;
+    _kernel_swi (0x0400f9, &r, &r);      /* Wimp_TextOp (Get text length in OS uints. */
+
+    stringWidth = r.r[0] + 16;
+
+    Wimp_GetWindowState (toolbarInfo, &wstate);
+    wstate.openblock.behind           = -1;
+
+    if (MDCfg->toolbar.align == TB_LEFT)
+    {
+      // Tips box starts just to the right (+8) of the toolbar (or pointer).
+      wstate.openblock.screenrect.min.x = (ptr.pos.x < (toolbarWidth / 2) + 8) ?
+                                          toolbarWidth + 8 : ptr.pos.x + (toolbarWidth / 2);
+
+      // Tips box width is string width + 16 (for padding)
+      wstate.openblock.screenrect.max.x = wstate.openblock.screenrect.min.x + stringWidth;
+    }
+    else
+    {
+      wstate.openblock.screenrect.max.x = (ptr.pos.x > (toolbarWidth / 2) - 8) ?
+                                          toolbarPos.min.x - 8 : ptr.pos.x - (toolbarPos.min.x / 2);
+
+      wstate.openblock.screenrect.min.x = wstate.openblock.screenrect.max.x - stringWidth;
+    }
+
+    // Position box vertically slightly below the tip of the pointer. (-8)
+    // Tips box height is as defined in template.
+    wstate.openblock.screenrect.min.y = ptr.pos.y - 8 - wstate.openblock.screenrect.max.y -
+                                        wstate.openblock.screenrect.min.y;
+    wstate.openblock.screenrect.max.y = ptr.pos.y - 8;
+
+    Wimp_OpenWindow (&wstate.openblock);
+
+    tipsWinOpen = TRUE;
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_AddGap
+   Purpose   : Adds a gap on the toolbar.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/04/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void ToolBar_AddGap(void)
+{
+  db_fn_begin();
+
+  toolbarWorkAreaHeight -= MDCfg->toolbar.gapSize;
+  toolbarHeight         += MDCfg->toolbar.gapSize;
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_AddIcon
+   Purpose   : Adds a button on to the toolbar.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 04/04/2002 - Update - Now works on 'old' RO3 screen modes.
+   V1.0.1    : 27/08/2001 - Update - Added 'small' icon support
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int ToolBar_AddIcon (char *barSprite, int small, char *bigSprite, char *barHelpText, tb_proc ref)
+{
+  return ToolBar_AddIcon2(barSprite, NULL, small, bigSprite, barHelpText, ref);
+}
+
+/*
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+*/
+int ToolBar_AddIcon2 (char *barSprite, char *ptr, int small, char *bigSprite, char *barHelpText, tb_proc ref)
+{
+  icon_createblock *iBlock;
+  icon_handle       iHandle;
+  int               validBuffer;
+  char             *buttonSprite = ((MDCfg->toolbar.bigButtons == 0) ? bigSprite : barSprite);
+
+
+  db_fn_begin();
+
+  iBlock = malloc(sizeof(icon_createblock));
+  Wimp_GetIconState(toolbarWin, 0, &(iBlock->icondata));
+
+  iBlock->window                             = toolbarWin;
+  iBlock->icondata.workarearect.min.y        = toolbarWorkAreaHeight - toolbarYSize;
+  iBlock->icondata.workarearect.max.y        = toolbarWorkAreaHeight;
+  iBlock->icondata.workarearect.min.x        = 0;
+  iBlock->icondata.workarearect.max.x        = toolbarBWidth;
+  toolbarWorkAreaHeight                      = toolbarWorkAreaHeight - toolbarYSize
+                                             - MDCfg->toolbar.spacing;
+  toolbarHeight                              = toolbarHeight         + toolbarYSize
+                                             + MDCfg->toolbar.spacing;
+  iBlock->icondata.flags.data.deleted        = 0;
+  iBlock->icondata.flags.data.halfsize       = ((MDCfg->toolbar.bigButtons == 0) ? 0 : small);
+
+  iBlock->icondata.data.indirecttext.buffer  = TB__emptyString;
+  iBlock->icondata.data.indirecttext.bufflen = 1;
+
+  validBuffer = strlen(buttonSprite) + 7;
+  if (ptr != NULL)  validBuffer += 6 + strlen(ptr);
+
+  iBlock->icondata.data.indirecttext.validstring = malloc (validBuffer);
+
+  if (ptr == NULL)
+    sprintf (iBlock->icondata.data.indirecttext.validstring, "r5,3;s%s", buttonSprite);
+  else
+    sprintf (iBlock->icondata.data.indirecttext.validstring, "r5,3;s%s;Pptr_%s", buttonSprite, ptr);
+
+  Wimp_CreateIcon (iBlock, &iHandle);
+
+  tbButtons[(int)iHandle].helpText = malloc (strlen(barHelpText) + 1);
+  strcpy (tbButtons[(int)iHandle].helpText, barHelpText);
+
+  tbButtons[(int)iHandle].function = ref;
+
+  tbCount++;
+
+  db_fn_end();
+
+
+  return iHandle;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_Init1
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void ToolBar_Init1(void)
+{
+  int  i;
+
+
+  db_fn_begin();
+
+  toolbarHeight         = 0;
+  toolbarWorkAreaHeight = 2000;
+
+  for (i = 1; i < MaxToolbarButtons; i++)
+  {
+    tbButtons[i].helpText     = NULL;
+    tbButtons[i].function     = NULL;
+    tbButtons[i].interface[0] = 0;
+    tbButtons[i].device       = 0;
+  }
+
+  tbCount = 0;
+
+  ToolBar_PosInit();
+
+  toolbarWin = Window_Create("toolbar", 20);
+
+  Shortcuts_AddTBIcons();
+  Printer_AddTBIcons  ();
+  ArmTCP_AddTBIcons   ();
+  Psion_AddTBIcons    ();
+  ShareFS_AddTBIcons  ();
+  RESFS_AddTBIcons    ();
+  MEMFS_AddTBIcons    ();
+  ToolBar_AddGap      ();
+  CDFS_AddTBIcons     ();
+  HostFS_AddTBIcons   ();
+  FileCore_AddTBIcons ();
+
+  Event_Claim    (event_CLICK,      toolbarWin, event_ANY, ToolBar_Click,    NULL);
+  EventMsg_Claim (message_DATALOAD, toolbarWin,            ToolBar_DataLoad, NULL);
+  EventMsg_Claim (message_DATASAVE, toolbarWin,            ToolBar_DataSave, NULL);
+
+  if (MDCfg->toolbar.hideWhen == 2)
+    ToolBar_Open();
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_Initialise
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void ToolBar_Initialise(void)
+{
+  db_fn_begin();
+
+  db_trace(100, "Initialising...");
+
+  ToolBar_Init1  ();
+
+  toolbarInfo = Window_Create("toolbarinfo", 0);
+
+  EventMsg_Claim (MDMsg_PopUpWin,        event_ANY, ToolBar_PopUp,     NULL);
+  EventMsg_Claim (MDMsg_ToolbarAlt,      event_ANY, ToolBar_AltHit,    NULL);
+  EventMsg_Claim (MDMsg_ToolbarHide,     event_ANY, ToolBar_Hide,      NULL);
+  EventMsg_Claim (MDMsg_ToolbarHideTips, event_ANY, ToolBar_HideTips,  NULL);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar__AutoHelp
+   Purpose   : Sends a wimp message to display the toobar 'tips'.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 29/03/2002 - Update - Now ensures that the pointer is over the
+                                     toolbar before sending the message.
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *ToolBar_AutoHelp(_kernel_swi_regs *r, void *pw)
+{
+  mouse_block  ptr;
+
+
+  db_fn_begin();
+
+  Wimp_GetPointerInfo(&ptr);
+
+  if (toolbarOpen && ptr.window == toolbarWin)
+    ToolBar_Message(MDMsg_PopUpWin);
+
+  mousev_queue = 0;
+
+  db_fn_end();
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_HotSpotEntered
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     :
+               CALLED ON AN EVENT - OUTSIDE OF THE WIMP APP
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *ToolBar_HotSpotEntered(_kernel_swi_regs *r, void *pw)
+{
+  mouse_block  ptr;
+
+
+  // Toolbar is not currently on screen, the pointer is in the hot-spot,
+  // and Alt is NOT currently pressed, then show the toolbar.
+  Wimp_GetPointerInfo(&ptr);
+
+  // Don't display toolbar over our menus
+  if ((WimpMsg_GetTaskHandle(ptr.window, ptr.icon) != d->task) && (tbCount > 0))
+    ToolBar_Open();
+
+  mousev_queue = 0;
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar_HotSpotLeaft
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     : We are setting the window open flags in here to false, even
+               though they will be set in response to the messages sent.
+               CALLED ON AN EVENT - OUTSIDE OF THE WIMP APP
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *ToolBar_HotSpotLeaft(_kernel_swi_regs *r, void *pw)
+{
+  // Toolbar is currently visible (but pointer has moved away from it)
+  // If we should hide on move-away, then do just that.
+  if (MDCfg->toolbar.hideWhen != 2)
+  {
+    ToolBar_Message(MDMsg_ToolbarAlt);
+
+    toolbarOpen = FALSE;
+  }
+
+  // If the toolbar is not set to hide when the pointer leaves
+  // the hot-spot, then we just need to make sure that we've
+  // removed any tool-tips from the screen.
+  if (tipsWinOpen)
+  {
+    ToolBar_Message(MDMsg_ToolbarHideTips);
+
+    tipsWinOpen = FALSE;
+  }
+
+  mousev_queue = 0;
+
+
+  return NULL;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ToolBar__TrackMouse
+   Purpose   : Sit on the MouseV vector, monitoring position.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 29/03/2002 - Update - Changed when toolbar tips appear.  Now
+                                     only shown when over the toolbar, rather
+                                     than anywhere in the 'hot-spot' area.
+   V1.0.1    : 16/12/2001 - Bugfix - No longer hides the toolbar if it covers
+                                     the iconbar.
+   V1.0.0    : 27/06/2001 - Preliminary implementation.
+   Notes     : For tracking the screen position of the mouse.
+               CALLED ON AN EVENT - OUTSIDE OF THE WIMP APP
+--------------------------------------------------------------------------------
+*/
+int ToolBar__TrackMouse(_kernel_swi_regs *r, void *pw)
+{
+  char  block[6];
+  int   xpos, ypos;
+
+
+  if (MDCfg->toolbar.enabled != 0)  return 1;
+
+  if (mousev_queue == 1)            return 1;
+
+  block[0] = 4;
+  OS_Word(osword_DEFINEPOINTERANDMOUSE, &block);
+
+  xpos = (block[2] << 8) + block[1];
+  ypos = (block[4] << 8) + block[3];
+
+
+  /* ----------------------------------------------------------------- *
+   *                 Toolbar is currently ON SCREEN                    *
+   * ----------------------------------------------------------------- */
+  if (toolbarOpen)
+  {
+    if (mouse_InsideTBAreaOpen(xpos, ypos))  // inside the toolbar boundary
+    {
+      // If mouse has moved ...
+      if ((ypos != mousePos.y || xpos != mousePos.x) && !MDCfg->toolbar.showTips)
+      {
+        mousePos.y   = ypos;
+        mousePos.x   = xpos;
+
+        mousev_queue = 1;
+        XUtil_AddCallBack(CB__ToolBar_AutoHelp, pw);
+      }
+    }
+
+    else  // Moved away from toolbar
+    {
+      mousev_queue = 1;
+      XUtil_AddCallBack(CB__ToolBar_HotSpotLeaft, pw);
+    }
+  }
+
+
+  /* ----------------------------------------------------------------- *
+   *                 Toolbar is currently HIDDEN                       *
+   * ----------------------------------------------------------------- */
+  else
+  {
+    if (mouse_OutsideTBAreaHidden(xpos, ypos))
+    {
+      altispressed = FALSE;
+
+      return 1;
+    }
+
+    if (!altispressed)
+    {
+      mousev_queue = 1;
+      XUtil_AddCallBack(CB__ToolBar_HotSpotEntered, pw);
+    }
+  }
+
+
+  return 1;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Toolbar_Reinit
+   Purpose   : Reinitialise the toolbar - delete, then re-add all buttons.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 28/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Toolbar_Reinit(void)
+{
+  db_fn_begin();
+
+  /* FREE EACH BUTTONS MEMORY HERE */
+
+  Window_Delete(toolbarWin);
+
+  ToolBar_Init1();
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: toolbar.c,v $
+   Revision 1.4  2004/04/14 14:44:06  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.3  2003/10/05 16:00:15  jtemple
+   General check-in for release testing.
+
+   Revision 1.2  2003/09/14 11:52:09  jtemple
+   Tidied code & comments.
+   Added debugging function entry/exit handlers.
+   Replaced Mem_ functions with malloc/free.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

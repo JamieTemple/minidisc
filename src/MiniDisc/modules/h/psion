@@ -1,0 +1,32 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : psion.h                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_PSION
+#define MDH_PSION
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * ---------------------------------------------------------------------------
+extern proc_info proceduresInfo[MaxMenuSize];
+extern int       DriveMenuSize; */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Procedures                                                         *
+ * --------------------------------------------------------------------------- */
+/* Desklib:Msgs.h
+extern void  Msgs_Lookup          (char *tag, char *result, int maxlength); */
+
+/* psiriscfs.h
+extern void *PsiRiscFS_ListDrives (void *mainMenu); */
+
+extern void *Psion_ListDrives (void *mainMenu);
+extern void  Psion_AddTBIcons (void);
+
+
+#endif

@@ -1,0 +1,237 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : /modules/rmfs.c                                                 *
+ * Purpose   : RMFS specific MiniDisc handlers.                                *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "minidisc/modules/rmfs.h"
+#include "minidisc/modules/filecore.h"
+
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/iconbar.h"
+#include "minidisc/core/toolbar.h"
+#include "minidisc/core/oslib-menu.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "shared/desklib.h"
+
+#include "oslib/osfscontrol.h"
+#include "oslib/osmodule.h"
+#include "oslib/filecore.h"
+
+
+extern void FileCore_AddTBIcon(char *spriteName, char *bigSprite, char *infoText, char *fsn, int device);
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RMFS_Eject                                                      *
+ * Purpose   : Eject an RMFS disc from it's drive.                             *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/05/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RMFS_Eject (int drivenum)
+{
+  int  instance;
+
+
+  xosmodule_lookup           ("FileCore%RMFS", NULL, &instance, NULL, NULL, NULL);
+
+  xfilecoremiscop_eject_disc (drivenum, (void *)instance);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RMFS_ClickControlMenu                                           *
+ * Purpose   : RMFS specific menu 'Click' events handler.                      *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 26/05/2000 - Update - Added 'Eject' support.                    *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RMFS_ClickControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  switch (MenuGet_SubMenuLevel(event))
+  {
+    case 1:
+      switch(MenuGet_SubMenuValue(event, 1))
+      {
+        case 0: FileCore_OpenRoot        (fsn_desc, drivenum, NULL);     break; /* Open root    */
+        case 2: RMFS_Eject               (          drivenum);           break; /* Eject        */
+        case 3:                                                          break; /* Format       */
+        case 6:                                                          break; /* Verify       */
+        case 7: FileCore_ShowFree        (fsn_desc, drivenum);           break; /* Free         */
+        case 8: FileCore_MenuHideRestore (fsn_desc, drivenum, event, 8); break; /* Hide/Restore */
+      }
+      break;
+
+    case 2:
+      switch (MenuGet_SubMenuValue(event, 1))
+      {
+        case 1:  /* Name Disc */
+          FileCore_RenameDisc (fsn_desc, drivenum, MenuGet_TextAtLevel(event, 2, 0));
+          break;
+
+        case 2:  /* Eject and dismount */
+          XUtil_osclif ("%s:Dismount %d", fsn_desc, drivenum);
+          RMFS_Eject   (drivenum);
+          break;
+
+        case 3:  /* Format low level */
+          break;
+
+        case 4:  /* Share */
+          break;
+
+        case 5:  /* Protection */
+          break;
+      }
+      break;
+
+    case 3:  /* Protection */
+      if (MenuGet_SubMenuValue(event, 1) == 5)
+      {
+        if (MenuGet_SubMenuValue(event, 2) == 0) /* Write protect */
+          ;
+        else  /* Read protect */
+          ;
+      }
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RMFS_FollowControlMenu                                          *
+ * Purpose   : RMFS specific menu warnings handler.                            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RMFS_FollowControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  char  menuTitle[wimp_MAXNAME],
+        menuText[256];
+
+
+  switch(MenuGet_SubMenuValue(event, 1))
+  {
+    case 0:  dirMenu_FromDrive      (event, FALSE);                    break;  /* Path       */
+    case 1:  FileCore_BuildNameDisc (fsn_desc, drivenum, event);       break;  /* Name disc  */
+    case 2:  Msgs_Lookup            ("m.ejec",  menuTitle, wimp_MAXNAME - 1);  /* Eject      */
+             Msgs_Lookup            ("m.ejds",  menuText,  255);
+             MenuAttach_WritableSub (menuTitle, menuText,  0, event);  break;
+    case 3:  Msgs_Lookup            ("m.form",  menuTitle, wimp_MAXNAME - 1);  /* Format...  */
+             Msgs_Lookup            ("m.flow",  menuText,  255);
+             MenuAttach_WritableSub (menuTitle, menuText,  0, event);  break;
+    case 4:                                                            break;  /* Share      */
+    case 5:  Msgs_Lookup        ("menu.prot00", menuTitle, wimp_MAXNAME - 1);  /* Protection */
+             Msgs_Lookup            ("menu.prot",  menuText,  255);
+             MenuAttach_WritableSub (menuTitle, menuText,  0, event);  break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RMFS_Actions                                                    *
+ * Purpose   : RMFS specific handler dispatching.                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RMFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case click:
+      FileCore_ClickGeneric  (mevent, fsn_desc,         drivenum, event, RMFS_ClickControlMenu);
+      break;
+
+    case follow:
+      FileCore_FollowGeneric (mevent, fsn_desc, "rmfs", drivenum, event, RMFS_FollowControlMenu);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RMFS_ListDrives                                                 *
+ * Purpose   : Add main menu entries for RMFS drives.                          *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *RMFS_ListDrives (char *device_name, int hard, int floppy, void *mainmenu)
+{
+  _kernel_swi_regs  regs;
+  char              buffer[buffer_size],
+                    filePath[12],
+                    discName[27];
+
+
+  _kernel_swi(0x533c1, &regs, &regs);  /* RMFS_Discs */
+
+  if (regs.r[0] == 0)  /* No drives currently found */
+  {
+    DriveMenuSize++;
+    mainmenu = FileCore_MenuExtend(mainmenu, "~RMFS::0", "smd_rd", "RMFS:", -1);
+    proceduresInfo[DriveMenuSize].proc_ptr = RMFS_Actions;
+    proceduresInfo[DriveMenuSize].drivenum = 0;
+    strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "RMFS:");
+
+    return mainmenu;
+  }
+
+  for (floppy = regs.r[0] - 1; floppy >= 0; floppy--)
+  {
+    regs.r[0] = floppy;
+
+    _kernel_swi(0x533c2, &regs, &regs);  /* RMFS_DriveStatus */
+
+    DriveMenuSize++;
+
+    if ((regs.r[0] & 1) == 0)  /* Disc in drive */
+    {
+      sprintf(filePath, "%s:%d.$", device_name, floppy);
+      xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL);
+      discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+      mainmenu = FileCore_MenuExtend(mainmenu, discName, "smd_rd", "RMFS:", floppy);
+    }
+    else  /* Could not read the disc label */
+    {
+      if (MDCfg->filecore.greyEmpty == 0)  sprintf(buffer, "~%s:%d", device_name, floppy);
+      else                                 sprintf(buffer, "%s:%d",  device_name, floppy);
+      mainmenu = FileCore_MenuExtend(mainmenu, buffer, "smd_rd", "RMFS:", floppy);
+    }
+    proceduresInfo[DriveMenuSize].proc_ptr = RMFS_Actions;
+    proceduresInfo[DriveMenuSize].drivenum = floppy;
+    strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "RMFS:");
+  }
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RMFS_AddTBIcons                                                 *
+ * Purpose   : Add toolbar entries for RMFS drives.                            *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 01/03/2002 - Bugfix - well, it now works!                       *
+ * V1.0.0    : 01/09/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RMFS_AddTBIcons(void)
+{
+  FileCore_AddTBIcon("md_rd", "b_rd", "RMFS::0", "RMFS:", 0);
+}

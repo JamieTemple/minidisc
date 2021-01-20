@@ -1,0 +1,670 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/smartsave.c                                              *
+ * Purpose   : 'Smart' saver facility configuration pane support routines.     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/smartsave.h"
+
+#include "shared/utilities.h"
+#include "shared/menu.h"
+
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Pane2.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macros                                                                      *
+ * --------------------------------------------------------------------------- */
+#define SS_ButtonHeight 116
+
+
+/* --------------------------------------------------------------------------- *
+ * Global variables scoped to this file.                                       *
+ * --------------------------------------------------------------------------- */
+static char      SS__emptyString[] = {""};
+static int       caretFocusIcon    = 0;
+static menu_ptr  fileTypesMenu     = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/05/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SmartSave_ReadDescription(void)
+{
+  char  fileType[16];
+  int   i;
+
+
+  /* Check for 'Default'. */
+  if (strcmp(Icon_GetTextPtr(prefspane, 4), "Default") == 0)
+  {
+    SmartSave_SetEditIcon(0);
+    return;
+  }
+
+  /* Check for known file types. */
+  for (i = 0; i < 4096; i++)
+  {
+    sprintf (fileType, "File$Type_%03x", i);  // get type
+
+    if (!OS_ReadVarVal (fileType, fileType, 16))  continue;  /* skip if does not exist */
+
+    if (strcmp(Icon_GetTextPtr(prefspane, 4), fileType) != 0) continue;
+
+    if ((int)strtol(Icon_GetTextPtr(prefspane, 7), NULL, 16) != i)
+    {
+      if (d->smartConfig[i] == NULL)
+        Icon_SetText(prefspane, OW_sms_FILEPATH, "");
+    }
+
+    SmartSave_SetEditIcon(i);
+
+    break;  /* Exit the loop as soon as we find something useful */
+  }
+
+  /* Failed to find anything, so revert to previous value. */
+  if (i == 4096)
+  {
+    if(strcmp(Icon_GetTextPtr(prefspane, 7), "???") == 0)
+      SmartSave_SetEditIcon(0);
+    else
+      SmartSave_SetEditIcon((int)strtol(Icon_GetTextPtr(prefspane, 7), NULL, 16));
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SmartSave_SetEditIcon                                           *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SmartSave_SetEditIcon (int fileType)
+{
+  char         spritename[24];
+  caret_block  caret;
+
+
+  Wimp_GetCaretPosition(&caret);
+
+  /* SPECIFIC file type save path */
+  if (fileType != 0)
+  {
+    Icon_printf   (prefspane, OW_sms_FILETYPE, "%03x", fileType);   /* File type number */
+    Icon_SetFlags (prefspane, OW_sms_FILETYPE, 0xf000, 0xe000);     /* Set enabled for write */
+    Icon_Unshade  (prefspane, OW_sms_DELETE);                       /* Enable the 'Delete' button */
+    sprintf       (spritename, "File$Type_%03x", fileType);         /* File type */
+    if (!OS_ReadVarVal (spritename, spritename, 24))
+      sprintf     (spritename, "Unknown");
+    Icon_printf   (prefspane, OW_sms_FILETDESC, "%s", spritename);
+    sprintf       (spritename, "file_%03x", fileType);
+    if (XUtil_spriteExists(spritename))
+      sprintf     (spritename, "R2;sfile_%03x", fileType);
+    else
+      sprintf     (spritename, "R2;sfile_xxx");
+    Icon_AlterValidation (prefspane, OW_sms_SPRITE,   spritename);
+    Icon_AlterValidation (prefspane, OW_sms_FILETYPE, "R2;Pptr_write;A0-9a-fA-F;Kartn");
+  }
+
+  /* DEFAULT save path */
+  else
+  {
+    Icon_SetText  (prefspane, OW_sms_FILETYPE, "???");        /* File type number */
+    Icon_SetFlags (prefspane, OW_sms_FILETYPE, 0xf000, 0);
+    if (caret.window == prefspane && caret.icon == OW_sms_FILETYPE)
+      caret.icon = OW_sms_FILEPATH;
+    Icon_Shade    (prefspane, OW_sms_DELETE);                 /* Disable the 'Delete' button */
+    Icon_SetText  (prefspane, OW_sms_FILETDESC, "Default");   /* File type description */
+
+    Icon_AlterValidation (prefspane, OW_sms_SPRITE,   "R2;sfile_xxx");
+    Icon_AlterValidation (prefspane, OW_sms_FILETYPE, "R2;A0-9a-fA-F;Kartn");
+  }
+
+  if (d->smartConfig[fileType] != NULL)
+    Icon_SetText(prefspane, OW_sms_FILEPATH, d->smartConfig[fileType]);    /* path */
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OPMenu_SmartSave                                                *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OPMenu_SmartSave (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  char        *entry;
+  char         filet[4];
+  int          filetype;
+
+
+  if (event->data.selection[1] == -1)
+    entry = Menu_GetText(menu, event->data.selection[0]);
+  else
+    entry = Menu_GetText(MenuGet_Item(menu, event->data.selection[0])->submenu.menu,
+                         event->data.selection[1]);
+
+  if (strcmp(entry, "Other") != 0)
+  {
+    strncpy(filet, entry, 3);
+    filet[3] = 0;
+    filetype = (int)strtol(filet, NULL, 16);
+    SmartSave_SetEditIcon (filetype);
+    if (d->smartConfig[filetype] == NULL)
+      Icon_SetText(prefspane, OW_sms_FILEPATH, "");
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SmartSave_DumpPane                                              *
+ * Purpose   : .                                                               *
+ * Status    : DEVELOPMENT !!!!                                                *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SmartSave_DumpPane(void)
+{
+  int i;
+
+
+  for (i = 0; i < 4096; i++)
+  {
+    if (d->smartConfig[i] == NULL)  continue;
+
+    /* Icon 0 : File (sprite) slabbed-in icon */
+//    Mem_Alloc ((mem_anchor *)&iBlock, sizeof(icon_createblock));
+
+    /* Icon 1 : File type "NameType (xxx)" icon */
+//    Mem_Alloc ((mem_anchor *)&iBlock, sizeof(icon_createblock));
+//    Mem_Free  ((mem_anchor *)&Icon_GetTextPtr(prefsp2, (i * 3) + 1));
+
+    /* Icon 2 : Save-to path */
+//    Mem_Alloc ((mem_anchor *)&iBlock, sizeof(icon_createblock));
+
+    /* Icon 3 : Covering button. */
+//    Mem_Alloc ((mem_anchor *)&iBlock, sizeof(icon_createblock));
+//    Mem_Alloc ((mem_anchor *)&iBlock->icondata.data.indirecttext.validstring, 3);
+  }
+
+  Pane2_DeletePane(prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp2));
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SmartSave_SetEdit                                               *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void SmartSave_SetEdit (int icon)
+{
+  char  spritename[32];
+
+
+  if (icon == 0)
+    SmartSave_SetEditIcon(0);
+  else
+  {
+    Icon_GetText(prefsp2, icon, spritename);
+    if (strcmp(spritename, "file_xxx") != 0)
+      SmartSave_SetEditIcon((int)strtol(spritename+5, NULL, 16));
+    else
+    {
+      Icon_GetText(prefsp2, icon+1, spritename);
+      SmartSave_SetEditIcon((int)strtol(spritename+19, NULL, 16));  //WARNING, WARNING!!!!
+    }
+  }
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileTypesMenu_Create                                            *
+ * Purpose   : Creates the filetype selection menu (and submenus).             *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/08/2003 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+static menu_ptr FileTypesMenu_Create(void)
+{
+  menu_ptr  aMenu,
+            subMenu;
+  char      menuText[256],
+            menuTitle[20];
+  int       i;
+
+
+  db_fn_begin();
+
+  aMenu = Msgs_MenuNew("conf.ssavet", "conf.ssavel");
+
+  for (i = 0, subMenu = NULL; i < 4096; i++)
+  {
+    sprintf (menuTitle, "File$Type_%03x", i);  // get type
+
+    if (!OS_ReadVarVal (menuTitle, menuTitle, 64))  continue;  // skip if does not exist
+
+    sprintf(menuText, "%03X  %s", i, menuTitle);
+
+    if (subMenu == NULL)  // First entry
+      subMenu = Menu_New("File type", menuText);
+
+    else  // subsequent items
+      subMenu = Menu_Extend(subMenu, menuText);
+  }
+
+  Menu_AddSubMenu(aMenu, 6, subMenu);  // WARNING, DR. ROBINSON, WARNING! SLACK CODING ALERT!!!
+
+  Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu, (void *)(13 | ((int)aMenu<<4)));
+
+  db_fn_end();
+
+
+  return aMenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_ClickSmartSave                                       *
+ * Purpose   : Processes clicks in the SmartSaver pane.                        *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 30/08/2003 - Update - Now uses a ont-time-only call for         *
+ *                                   creating the filetypes menu.              *
+ * V1.0.0    : 27/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_ClickSmartSave(event_pollblock *event, void *reference)
+{
+  window_state  wstate;
+  int           fileType;
+  char          fileDescBuffer[16];
+
+
+  if (event->data.mouse.window != prefspane)  return TRUE;
+
+  fileType = (int)strtol(Icon_GetTextPtr(prefspane, OW_sms_FILETYPE), NULL, 16);
+
+  switch(event->data.mouse.icon)
+  {
+    case OW_sms_SELECTYPE:  // Menu of file types
+      if (fileTypesMenu == NULL)  fileTypesMenu = FileTypesMenu_Create();
+      Menu_PopUp(fileTypesMenu, prefspane, OW_sms_SELECTYPE);
+      break;
+
+    case OW_sms_SET:  // Set
+      if (fileType == 0 && strlen(Icon_GetTextPtr(prefspane, OW_sms_FILEPATH)) == 0)
+      {
+        SmartSave_SetEditIcon(0);
+        break;
+      }
+
+      Wimp_GetWindowState(prefsp2, &wstate);
+      SmartSave_DumpPane();
+      if (d->smartConfig[fileType] != NULL)  free(d->smartConfig[fileType]);
+      if (strlen(Icon_GetTextPtr(prefspane, OW_sms_FILEPATH)) > 0)  // Only if a path exisis
+      {
+        d->smartConfig[fileType] = malloc(strlen(Icon_GetTextPtr(prefspane, OW_sms_FILEPATH)) + 1);
+        strcpy(d->smartConfig[fileType], Icon_GetTextPtr(prefspane, OW_sms_FILEPATH));
+      }
+      else
+        d->smartConfig[fileType] = NULL;
+      OWFill_SmartSave();
+      Pane2_Show(prefswindow, open_WHEREVER);
+      SmartSave_SetEditIcon(d->smartConfig[fileType] != NULL ? fileType : 0);
+      wstate.openblock.window = prefsp2;
+      Wimp_OpenWindow(&wstate.openblock);
+      /* In an ideal world, we would scroll the window here to show
+         the icon just updated if it weren't already visible. */
+      break;
+
+    case OW_sms_DELETE:  // Delete
+      SmartSave_DumpPane();
+      if (d->smartConfig[fileType] != NULL)  free(d->smartConfig[fileType]);
+      OWFill_SmartSave();
+      Pane2_Show(prefswindow, open_WHEREVER);
+      SmartSave_SetEditIcon(0);
+      break;
+
+    case OW_sms_FILETDESC:
+    case OW_sms_FILETYPE:
+      if (caretFocusIcon == OW_sms_FILETDESC)  // Focus was in the 'Type description' field
+        SmartSave_ReadDescription();
+
+      if (caretFocusIcon == OW_sms_FILETYPE)  // Focus was in the 'Type number' field
+        SmartSave_SetEditIcon((int)strtol(Icon_GetTextPtr(prefspane, OW_sms_FILETYPE), NULL, 16));
+
+      caretFocusIcon = event->data.mouse.icon;
+      break;
+
+    case OW_sms_FILEPATH:
+      /* If you click in the file path icon when it already has
+       * the input focus, then the file type information will not
+       * have had the opportunity to change, therefore nothing
+       * needs to be updated.
+       *
+       * If you click in the file path icon and the input focus was
+       * previously in either of the other 2 icons, then the file
+       * type /MAY/ have changed, so we should check, and change the
+       * file path if required.
+       */
+      switch (caretFocusIcon)
+      {
+        case OW_sms_FILETDESC:
+          sprintf (fileDescBuffer, "File$Type_%03x", fileType);   // Create system variable to look up
+
+          if (OS_ReadVarVal (fileDescBuffer, fileDescBuffer, 16)) // Read description for this type OK
+          {
+            if (strcmp(Icon_GetTextPtr(prefspane, 4), fileDescBuffer) != 0) // Description has changed
+              SmartSave_ReadDescription();
+          }
+          else  // Failed to read a description of this type
+            SmartSave_ReadDescription();
+
+          caretFocusIcon = OW_sms_FILEPATH;
+          break;
+
+        case OW_sms_FILETYPE:
+          SmartSave_SetEditIcon((int)strtol(Icon_GetTextPtr(prefspane, OW_sms_FILETYPE), NULL, 16));
+          caretFocusIcon = OW_sms_FILEPATH;
+          break;
+
+        default:  // Includes OW_sms_FILEPATH
+          break;
+      }
+      break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : SmartSave_SelectType                                            *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SmartSave_SelectType (event_pollblock *event, void *reference)
+{
+  SmartSave_SetEdit (event->data.mouse.icon - 3);
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : clone_icon                                                      *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 28/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+icon_createblock *clone_icon(int icon, int buttonCount)
+{
+  icon_createblock *iBlock;
+
+
+  iBlock = malloc (sizeof(icon_createblock));
+  Wimp_GetIconState (prefsp2, icon, &(iBlock->icondata));
+  iBlock->window                       = prefsp2;
+  iBlock->icondata.flags.data.deleted  = 0;
+  iBlock->icondata.workarearect.min.y -= buttonCount * SS_ButtonHeight;
+  iBlock->icondata.workarearect.max.y -= buttonCount * SS_ButtonHeight;
+
+
+  return iBlock;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/05/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SmartSave_GainCaret(event_pollblock *event, void *reference)
+{
+  caretFocusIcon = event->data.caret.icon;
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/05/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SmartSave_LoseCaret(event_pollblock *event, void *reference)
+{
+  char  fileName[16];
+  int   fileType;
+
+
+       if (event->data.caret.icon == OW_sms_FILETDESC)
+    SmartSave_ReadDescription();
+
+  else if (event->data.caret.icon == OW_sms_FILETYPE)
+  {
+    fileType = (int)strtol(Icon_GetTextPtr(prefspane, OW_sms_FILETYPE), NULL, 16);
+
+    sprintf (fileName, "File$Type_%03x", fileType);  // get type
+
+    if (OS_ReadVarVal (fileName, fileName, 16))
+    {
+      if (strcmp(Icon_GetTextPtr(prefspane, OW_sms_FILETDESC), fileName) != 0) // file type changed
+      {
+        if (d->smartConfig[fileType] == NULL)
+          Icon_SetText(prefspane, OW_sms_FILEPATH, "");
+      }
+    }
+    SmartSave_SetEditIcon(fileType);
+  }
+
+  caretFocusIcon = 0;
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/05/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL SmartSave_KeyPress(event_pollblock *event, void *reference)
+{
+  char  fileName[16];
+  int   fileType;
+
+
+  /* Only process Tab, Shift-Tab, Return, Up & Down Arrow key presses. */
+  if (event->data.key.code != 394 && event->data.key.code !=  13 &&
+      event->data.key.code != 398 && event->data.key.code != 399 &&
+      event->data.key.code != 410)
+    return TRUE;
+
+       if (event->data.key.caret.icon == 4)
+    SmartSave_ReadDescription();
+
+  else if (event->data.key.caret.icon == 7)
+  {
+    fileType = (int)strtol(Icon_GetTextPtr(prefspane, 7), NULL, 16);
+
+    sprintf (fileName, "File$Type_%03x", fileType);  // get type
+
+    if (OS_ReadVarVal (fileName, fileName, 16))
+    {
+      if (strcmp(Icon_GetTextPtr(prefspane, 4), fileName) != 0)  /* file type changed */
+      {
+        if (d->smartConfig[fileType] == NULL)
+          Icon_SetText(prefspane, OW_sms_FILEPATH, "");
+      }
+    }
+
+    SmartSave_SetEditIcon(fileType);
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_SmartSave                                                *
+ * Purpose   : Populate the 'Smart Saver' options pane.                        *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_SmartSave(void)
+{
+  icon_createblock *iBlock;
+  icon_handle       iHandle;
+  wimp_point        paneOffset;
+  int               i, bc = 0;
+  char              aBuffer[1024];
+
+
+  paneOffset.x   = 8;
+  paneOffset.y   = 264;
+
+  prefsp2 = Pane2_CreateAndAddPane("cfgsmartpane", 0, prefswindow, &paneOffset, NULL, 7);
+
+  for (i = 0; i < 4096; i++)
+  {
+    if (d->smartConfig[i] == NULL)  continue;
+
+    /* Icon 0 : File (sprite) slabbed-in icon */
+    iBlock = clone_icon (OW_ssp_SPRITE, bc);
+    if (i == 0) strcpy  (iBlock->icondata.data.spritename,  "file_xxx");
+    else
+    {
+      sprintf(aBuffer, "file_%03x", i);
+      if (XUtil_spriteExists(aBuffer))
+        strcpy (iBlock->icondata.data.spritename, aBuffer);
+      else
+        strcpy (iBlock->icondata.data.spritename, "file_xxx");
+    }
+    Wimp_CreateIcon     (iBlock, &iHandle);
+
+
+    /* Icon 1 : File type "NameType (xxx)" icon */
+    if (i != 0)
+    {
+      sprintf       (aBuffer, "File$Type_%03x", i);
+      if (!OS_ReadVarVal (aBuffer, aBuffer, 1024))
+        sprintf     (aBuffer, "Unknown file type &%03x", i);
+      else
+        sprintf     (aBuffer, "%s (%03x)", aBuffer, i);
+    }
+    else
+      sprintf       (aBuffer, "Default");  // strcpy fails here for some /really/ odd reason.
+
+    iBlock = clone_icon (OW_ssp_FILETYPE, bc);
+    iBlock->icondata.data.indirecttext.bufflen     = strlen(aBuffer) + 1;
+    iBlock->icondata.data.indirecttext.validstring = SS__emptyString;
+    iBlock->icondata.data.indirecttext.buffer = malloc (strlen(aBuffer)+1);
+    strcpy          (iBlock->icondata.data.indirecttext.buffer, aBuffer);
+    Wimp_CreateIcon (iBlock, &iHandle);
+
+
+    /* Icon 2 : Save-to path */
+    iBlock = clone_icon (OW_ssp_FILEPATH, bc);
+    iBlock->icondata.data.indirecttext.bufflen     = strlen(d->smartConfig[i]);
+    iBlock->icondata.data.indirecttext.validstring = SS__emptyString;
+    iBlock->icondata.data.indirecttext.buffer      = d->smartConfig[i];
+    Wimp_CreateIcon (iBlock, &iHandle);
+
+
+    /* Icon 3 : Covering button. */
+    iBlock = clone_icon (OW_ssp_BUTTON, bc);
+    iBlock->icondata.data.indirecttext.buffer  = SS__emptyString;
+    iBlock->icondata.data.indirecttext.bufflen = 1;
+    iBlock->icondata.data.indirecttext.validstring = malloc (3);
+    sprintf         (iBlock->icondata.data.indirecttext.validstring, "r5");
+    Wimp_CreateIcon (iBlock, &iHandle);
+
+    bc++;
+  }
+
+  Window_SetExtent(prefsp2, 0, bc < 5 ? -472 : (bc * -SS_ButtonHeight), 608, 0);
+
+  SmartSave_SetEdit (0);  /* Populate edit box with the default. */
+
+  Event_Claim    (event_CLICK,      prefsp2,   event_ANY, SmartSave_SelectType, NULL);
+  Event_Claim    (event_LOSECARET,  prefspane, event_ANY, SmartSave_LoseCaret,  NULL);
+  Event_Claim    (event_GAINCARET,  prefspane, event_ANY, SmartSave_GainCaret,  NULL);
+  Event_Claim    (event_KEY,        prefspane, event_ANY, SmartSave_KeyPress,   NULL);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_SmartSave                                               *
+ * Purpose   : Record options from the 'Smart Saver' pane before closing.      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_SmartSave(void)
+{
+  Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp2));
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWStore_SmartSave                                               *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 27/04/2002 - Preliminary implementation.                        *
+ * Notes     : Do nothing, as the fields are already updated.                  *
+ * --------------------------------------------------------------------------- */
+void OWStore_SmartSave (void)
+{
+  return;
+}
+

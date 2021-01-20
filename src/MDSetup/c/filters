@@ -1,0 +1,168 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MDSetup/filters.c,v $
+
+   $Revision: 1.3 $
+   $Date: 2004/04/17 14:55:03 $
+
+   MiniDisc filters configuration window handling functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "MDSetup/main.h"
+
+#include "MDSetup/filters.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Pane2.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OptionPane_ClickFilter
+   Purpose   : Process clicks upon buttons in the 'Filters' options pane.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OptionPane_ClickFilter (event_pollblock *event, void *reference)
+{
+  if (event->data.mouse.window != prefspane)  return TRUE;
+
+  if (event->data.mouse.button.data.adjust)
+  {
+    if (event->data.mouse.icon == 2 || event->data.mouse.icon == 3)  // The radios
+      Icon_Select(prefspane, event->data.mouse.icon);
+  }
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OWFill_Filter
+   Purpose   : Populate the 'Psion' options pane.
+   Status    : Implementation (V1.0.2)
+   v1.0.2    : 13/08/2003 - Update - Replaced PCDelete with FilerOpen patch.
+   V1.0.1    : 19/02/2000 - Update - Moved pane to accomodate new top pane.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void OWFill_Filter (void)
+{
+  wimp_point  paneOffset;
+
+
+  /* Fill top pane */
+
+
+  /* Create a 'bottom' pane */
+
+
+  /* Fill the sub-pane */
+ /*  if (filter_window == 0)  Built-in filter routines
+  {  */
+    paneOffset.x   = 8;
+    paneOffset.y   = 108;
+
+    prefsp2 = Pane2_CreateAndAddPane("cfgfilter1", 0, prefswindow, &paneOffset, NULL, 7);
+
+    Icon_SetSelect(prefsp2, OW_fl0_WINTITL, !tempCfg.filters.winTitle);
+    Icon_SetSelect(prefsp2, OW_fl0_DBLTAKE, !tempCfg.filters.doubleTake);
+    Icon_SetSelect(prefsp2, OW_fl0_PINSAVE, !tempCfg.filters.pinSave);
+    Icon_SetSelect(prefsp2, OW_fl0_FLROPEN, !tempCfg.filters.filerOpen);
+    Icon_SetSelect(prefsp2, OW_fl0_TSWITCH, !tempCfg.filters.taskSwitcher);
+
+    paneOffset.x = 8;
+    paneOffset.y = 720;
+
+    prefsp3 = Pane2_CreateAndAddPane("cfgfilterb1", 0, prefswindow, &paneOffset, NULL, 7);
+/*  }
+
+   else                            User-defined filter routines
+  {
+    paneOffset.x   = 8;
+    paneOffset.y   = 632;
+
+    prefsp3 = Pane2_CreateAndAddPane("cfgfilterb", 0, prefswindow, &paneOffset, NULL, 7);
+
+    paneOffset.x   = 8;
+    paneOffset.y   = 178;
+
+    prefsp2 = Pane2_CreateAndAddPane("cfgfilter2", 0, prefswindow, &paneOffset, NULL, 7);
+  }  */
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OWStore_Filter
+   Purpose   : Record options from panes.
+   Status    : Implementation (V1.0.1)
+   v1.0.1    : 13/08/2003 - Update - Replaced PCDelete with FilerOpen patch.
+   V1.0.0    : 13/03/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void OWStore_Filter (void)
+{
+  tempCfg.filters.winTitle     = !Icon_GetSelect(prefsp2, OW_fl0_WINTITL);
+  tempCfg.filters.doubleTake   = !Icon_GetSelect(prefsp2, OW_fl0_DBLTAKE);
+  tempCfg.filters.pinSave      = !Icon_GetSelect(prefsp2, OW_fl0_PINSAVE);
+  tempCfg.filters.filerOpen    = !Icon_GetSelect(prefsp2, OW_fl0_FLROPEN);
+  tempCfg.filters.taskSwitcher = !Icon_GetSelect(prefsp2, OW_fl0_TSWITCH);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OWClose_Filter
+   Purpose   : Record options from panes, then close them.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 13/03/2002 - Update - Now calls OWStore_Filter instead.
+   V1.0.1    : 11/09/1999 - Added iconbar icon & printer options
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void OWClose_Filter (void)
+{
+  OWStore_Filter   ();
+  Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp2));
+  Pane2_DeletePane (prefswindow, Pane2_GetPaneNumber(prefswindow, prefsp3));
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: filters.c,v $
+   Revision 1.3  2004/04/17 14:55:03  jtemple
+   Added task switcher support.
+
+   Revision 1.2  2003/08/16 15:42:13  jtemple
+   Changed PC Delete filter code to filer-drag-open-dir instead.  Also tidied code and comments
+
+
+--------------------------------------------------------------------------------
+*/
+

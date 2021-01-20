@@ -1,0 +1,160 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/main.h                                                   *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_MAIN
+#define MDH_CFG_MAIN
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "Shared/global.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : reAssignText                                                    *
+ * Purpose   : Free, reallocate, then copy some text in from an icon in the    *
+ *             preferences pane.                                               *
+ * Status    : Implementation (V1.1.2)                                         *
+ * V1.1.2    : 13/08/2000 - Update - Added some memory checks.                 *
+ * V1.1.1    : 03/12/1999 - Update - Now uses DeskLib 'mem' functions.         *
+ * V1.1.0    : 28/11/1999 - Update - No longer requires a temporary store.     *
+ * V1.0.0    : 30/08/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define reAssignText(icon, store)                                              \
+  if (store != NULL)  free((void *)store);                                     \
+                                                                               \
+  if (Icon_GetTextPtr(prefspane, icon) == NULL)                                \
+    store = NULL;                                                              \
+                                                                               \
+  else if (strlen(Icon_GetTextPtr(prefspane, icon)) > 0)                       \
+  {                                                                            \
+    store = malloc(strlen(Icon_GetTextPtr(prefspane, icon))+1);                \
+    strcpy(store, Icon_GetTextPtr(prefspane, icon));                           \
+    MDTrace(1, "Writing %s", store);                                           \
+  }                                                                            \
+  else store = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_xxxx                                                         *
+ * Purpose   : Main options window icon numbers.                               *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 04/03/2001 - Update - Added new selector icons.                 *
+ * V1.0.2    : 30/01/2000 - Update - Sensible restructure split.               *
+ * V1.0.1    : 07/01/2000 - Update - Renamed OW_GENERAL to OW_ICONBAR          *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_SET       1
+#define OW_CANCEL    2
+#define OW_RELOAD    3
+#define OW_SAVE      4
+#define OW_ICONBAR   5
+#define OW_FILECORE  6
+#define OW_IMAGE     7
+#define OW_CD        8
+#define OW_PSION     9
+#define OW_PRINTER  10
+#define OW_SHORTCUT 11
+#define OW_NETWORK  12
+#define OW_MISC     13
+#define OW_FILTER   14
+#define OW_HELP     19
+#define OW_WEB      20
+#define OW_INTHELP  21
+#define OW_OPENDIR  22
+#define OW_CFGMENU  23
+#define OW_CFGDISP  24
+
+
+/* --------------------------------------------------------------------------- *
+ * Enumerate : paneType                                                        *
+ * Purpose   : Used to define which options pane is currently open.            *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 16/08/2000 - Update - Added 'Filters'.                          *
+ * V1.0.3    : 07/01/2000 - Update - Renamed 'general' to 'iconbar'            *
+ * V1.0.2    : 05/01/2000 - Update - Added Miscelaneous pane support.          *
+ * V1.0.1    : 11/09/1999 - Update - Added Printers & Shortcuts support.       *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+enum paneType
+{
+  iconbar = 0,
+  misc,
+  filecore,
+  image,
+  cdfs,
+  psion,
+  printer,
+  shortcut,
+  network,
+  filters,
+  toolbar,
+  memoriser,
+  trashcan,
+  smartsave
+};
+
+
+/* --------------------------------------------------------------------------- *
+ * Enumerate : psionPane                                                       *
+ * Purpose   : Used to define which Psion driver pane is currently open.       *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+enum psionPane
+{
+  psiriscfs,
+  psifs
+};
+
+
+/* --------------------------------------------------------------------------- *
+ * Structure : menuMessage                                                     *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     : I've forgotten what this is used for!                           *
+ * --------------------------------------------------------------------------- */
+typedef struct
+{
+  menu_ptr menu;
+  int      icon;
+} menuMessage;
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * --------------------------------------------------------------------------- */
+extern shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts];
+extern app_config           tempCfg;
+extern window_handle        prefswindow,
+                            prefspane,
+                            prefsp2,
+                            prefsp3;
+extern enum paneType        currentPane;
+extern enum psionPane       currentPsiPane;
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+BOOL      OptionsWin_Open (void);
+BOOL      OptionPane_Menu (event_pollblock *event, void *reference);
+menu_ptr  Msgs_MenuNew    (char *title, char *desc);
+
+
+#endif

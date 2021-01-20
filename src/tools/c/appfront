@@ -1,0 +1,90 @@
+/*
+ * Program : AddScut
+ * Purpose : Add a specified shortcut into the MiniDisc configuration, then
+ *           send a message to tell MiniDisc to reload them.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "kernel.h"
+
+#define TASK_MDSetup  0
+#define TASK_SCSetup  1
+#define TASK_UNKNOWN -1
+
+#define MDMsg_Block 0x091300
+
+#define MDMsg_SetupToFront     ((MDMsg_Block + 0x0a))
+#define MDMsg_SBuilder_ToFront ((MDMsg_Block + 0x0b))
+
+
+int main(int argc, char *argv[])
+{
+  _kernel_swi_regs  r;
+  int               buffer[4];
+  char              taskName[32];
+  int               i, myTask;
+  int               msgBlock[5];
+  int               whichTask;
+
+
+  if (argc != 2)  return 0;  // Syntax: WinToFront 0 | 1
+
+  switch(atoi(argv[1]))
+  {
+    case 0:  whichTask = TASK_MDSetup;  break;
+    case 1:  whichTask = TASK_SCSetup;  break;
+    default: whichTask = TASK_UNKNOWN;  break;
+  }
+
+  if (whichTask == TASK_UNKNOWN)  return 0;
+
+  r.r[0] = 0;  /* first call */
+  do
+  {
+    r.r[1] = (int) buffer;
+    r.r[2] = sizeof(buffer);
+
+    _kernel_swi(0x042681, &r, &r);
+
+    if (r.r[0] >= 0)
+    {
+      strncpy(taskName, (char *)buffer[1], 32);
+      for (i = 0; i < 32; i++)  if (taskName[i] < ' ') taskName[i] = 0;
+
+      if (strcmp(taskName, whichTask == TASK_MDSetup ? "MDSetup" : "SCSetup") == 0)
+      {
+        r.r[0] = 310;
+        r.r[1] = 0x4b534154;  // "TASK"
+        r.r[2] = (int) "appfront";
+        r.r[3] = 0;
+
+        _kernel_swi(0x400c0, &r, &r);  // Wimp_Initialise
+
+        myTask = r.r[1];
+
+        r.r[0] = 17;  // user message
+        r.r[1] = (int) &msgBlock;
+        r.r[2] = 0;   // Broadcast;
+
+        msgBlock[0] = 20;  // 5 * sizeof(int)
+        msgBlock[3] = 0;
+        msgBlock[4] = (whichTask == TASK_MDSetup ? MDMsg_SetupToFront : MDMsg_SBuilder_ToFront);
+
+        _kernel_swi(0x400e7, &r, &r);  // Wimp_SendMessage
+
+        r.r[0] = myTask;
+        r.r[1] = 0x4b534154;  // "TASK"
+
+        _kernel_swi(0x400dd, &r, &r);  // Wimp_CloseDown
+
+        return 1;
+      }
+    }
+  } while (r.r[0] >= 0);
+
+
+  return 0;
+}

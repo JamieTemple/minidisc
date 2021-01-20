@@ -1,0 +1,242 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/scedit.c                                                 *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+
+#include "scsetup/core.h"
+
+#include "shared/global.h"
+#include "shared/stdhandlers.h"
+#include "shared/shortcuts.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:File.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Mem.h"
+#include "DeskLib:Pane2.h"
+#include "DeskLib:Resource.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:WimpSWIs.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:Template.h"
+
+
+extern BOOL SCG_TestMenuOpen;
+
+
+/* --------------------------------------------------------------------------- *
+ * (Local) Global Variables                                                    *
+ * --------------------------------------------------------------------------- */
+int       MD_ModeHasChanged = FALSE;  // NOT USED
+app_info  MD__app_info;
+app_info *d = &MD__app_info;
+
+
+BOOL WinToFront(event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  Pane2_Show(scwin_main, open_WHEREVER);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : App_Quit                                                        *
+ * Purpose   : WIMP Message_QUIT handler                                       *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 22/01/2001 - Update - Now calls exitANDDIE to rmkill module.    *
+ * V1.1.0    : 13/01/2000 - Update - Split out icon restore code.              *
+ * V1.0.2    : 12/09/1999 - Update - Now only restores filer icons (and runs   *
+ *                                   exit scripts) if the WIMP is not shutting *
+ *                                   down.                                     *
+ * V1.0.1    : 11/09/1999 - Update - Moved bits from 'Main'                    *
+ *                                 - Added code to run an extra script on exit *
+ *                                 - Now restores filer icons                  *
+ *                                 - Made this the main exit handler.          *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     : Called in response to WIMP message. - Usually from a Shutdown   *
+ *             or from selecting 'Quit' in the task-manager.                   *
+ * --------------------------------------------------------------------------- */
+BOOL App_Quit (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  r;
+
+
+  db_fn_begin();
+
+  MDTrace(80, "SCSetup is closing down...");
+
+  Template_ClearAll();  /* Remove templates */
+
+  r.r[0] = (int)  "SCSetup$Running";
+  r.r[2] = -1;
+  _kernel_swi(0x24, &r, &r);  // OS_SetVarVal
+
+  /* There is quite likely to be a fair amount of additional tidying-up required here... */
+
+  d->quit = TRUE;
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : App_Initialise                                                  *
+ * Purpose   : Main application initialisation code.                           *
+ * Status    : Implementation (V1.0.7)                                         *
+ * V1.0.7    : 15/08/2000 - Bugfix - Hack added to stop garbage appearing on   *
+ *                                   screen as MD starts. - I think this has   *
+ *                                   something to do with screen variables not *
+ *                                   being set-up correctly. ( ??? how ??? )   *
+ * V1.0.6    : 12/02/2000 - Update - Added code to cope with keyboard events.  *
+ * V1.0.5    : 23/01/2000 - Update - Now reads copyright information from the  *
+ *                                   module header.                            *
+ * V1.0.4    : 13/01/2000 - Update - Now uses 'IconBar_Initialise'.            *
+ * V1.0.3    : 28/11/1999 - Update - No longer uses the (large) static arrays. *
+ * V1.0.2    : 14/09/1999 - Bugfix - Now correctly creates iconbar icon.       *
+ * V1.0.1    : 10/09/1999 - Update - Now uses 'SplashWrite', also, implemented *
+ *                                   the 'onStartup' script handler.           *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL App_Initialise (void)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  char              spriteFilePath[25];
+  int               yeigfactor,
+                    filesize;
+  int               messageList = 0;
+  int               i;
+
+
+  db_fn_begin();
+
+  d->quit = FALSE;
+  strcpy(d->task_name, "SCSetup");
+
+  /* Make sure we know what sort of platform we're on... */
+  regs.r[0]    = 0;
+  regs.r[1]    = 0;
+  anError      = _kernel_swi(0x06, &regs, &regs);
+  d->OSVersion = ((anError->errmess[8]  - '0') * 100) +
+                 ((anError->errmess[10] - '0') *  10) +
+                 ((anError->errmess[11] - '0'));
+
+  SCG_TestMenuOpen = FALSE;
+
+  Screen_CacheModeInfo    ();
+  Resource_InitialisePath ("SCSetupRes");  /* Application resources initialisation. */
+
+  /* NOTE: This next bit is not very dynamic, in that it only chooses a spritefile when
+           MiniDisc starts.  If the mode is changed thereafter, you /could/ be using the
+           wrong aspect sprites! */
+
+  /* Load application sprites into our area */
+  OS_ReadModeVariable (-1, modevar_YEIGFACTOR, &yeigfactor);
+  sprintf (spriteFilePath, "SCSetupRes:Sprites%s", yeigfactor == 1 ? "22" : "");
+
+  resource_sprites              = NULL;
+  filesize                      = File_Size(spriteFilePath);
+  resource_sprites              = malloc(filesize + 16);
+  resource_sprites->areasize    = filesize + 16;
+  resource_sprites->firstoffset = 16;
+
+  Sprite_InitArea         (resource_sprites);
+  Sprite_Load             (resource_sprites, spriteFilePath);
+
+  Msgs_LoadFile           ("Messages");     /* Load messages */
+
+/* ---- IMPORTANT NOTE: Everything before this next command is NOT within a WIMP task! ---- */
+
+  Event_Initialise4       (d->task_name, 380, &messageList, &d->task);
+
+  event_mask.value = 0x31;  /* Initialise the WIMP events that we're interested in. */
+
+  Template_Initialise     ();
+  Template_UseSpriteArea  (resource_sprites);
+  Template_LoadFile       ("Templates");
+  stdhandlers_Initialise  ();
+  EventMsg_Claim          (message_QUIT,           event_ANY, App_Quit,     NULL);
+  EventMsg_Claim          (MDMsg_NoMoreMenus,      event_ANY, noMoreMenus,  NULL);
+  EventMsg_Claim          (MDMsg_SBuilderToFront,  event_ANY, WinToFront,   NULL);
+  Window_AutoHelp         (event_ANY,   event_ANY);
+
+  /* Initialise shortcuts array */
+  memset(shortcutsArray, 0, maximumNumberOfShortcuts * sizeof(shortcuts_menu_head));
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    shortcutsArray[i].menuName[0] = 0;
+    shortcutsArray[i].first       = NULL;
+  }
+
+  /* Initialise top-level shortcuts menu */
+  Msgs_Lookup("menu.shortcut:Shortcuts", shortcutsArray[0].menuName, 19);
+  shortcutsArray[0].first = NULL;
+
+  /* Load the shortcuts file. */
+  Shortcuts_Load ("<MiniDisc$Shortcuts>");
+
+  SCEdit_OpenWindow();
+
+  MDTrace(80,"Application initialisation complete");
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : main                                                            *
+ * Purpose   : PROGRAM ENTRY POINT                                             *
+ * Status    : Implementation (V1.0.6)                                         *
+ * V1.0.6    : 22/01/2001 - Update - Added debugging code.                     *
+ * V1.0.5    : 15/08/2000 - Update - General code tidy.                        *
+ * V1.0.4    : 10/01/2000 - Update - Now uses app.info structure to select the *
+ *                                   iconbar icon appearance.                  *
+ * V1.0.3    : 24/09/1999 - Propper start-up time-slicing code implemented.    *
+ * V1.0.2    : 12/09/1999 - Rewrite of polling loop, now uses PollIdle.        *
+ * V1.0.1    : 10/09/1999 - Now uses the general exit handler.                 *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     : Called on an OSModule_Enter.                                    *
+ * --------------------------------------------------------------------------- */
+int main(int argc, char *argv[])
+{
+  db_init("SCSetup");
+
+  db_fn_begin();
+
+  if (App_Initialise())
+  {
+    while (!d->quit)
+      Event_Poll();
+  }
+
+  App_Quit (NULL,NULL);  /* Tidy up on exit */
+
+  db_fn_end();
+
+
+  return 0;
+}
+
+

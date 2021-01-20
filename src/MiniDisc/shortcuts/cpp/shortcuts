@@ -1,0 +1,1025 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/shortcuts/shortcuts.cpp,v $
+
+   $Revision: 1.4 $
+   $Date: 2003/10/05 16:00:53 $
+
+   Central shortcuts-specific code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#include <time.h>
+
+#include "minidisc/shortcuts/shortcuts.h"
+
+#include "minidisc/shortcuts/command.h"
+#include "minidisc/shortcuts/file.h"
+#include "minidisc/shortcuts/menu.h"
+#include "minidisc/shortcuts/path.h"
+#include "minidisc/shortcuts/url.h"
+
+#include "shared/utilities.h"
+#include "shared/shortcuts.h"
+
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/menu.h"
+#include "minidisc/core/module.h"
+#include "minidisc/core/toolbar.h"
+
+#include "minidisc/filters/filters.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:WimpSWIs.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+
+/*
+  This little snippet of code is interesting.... Opens a Director menu.
+
+  message.header.size    = 256;
+  message.header.sender  = 0;
+  message.header.myref   = 0;
+  message.header.yourref = 0;
+  message.header.action  = 0x4a100;
+  message.data.words[0]  = 0;       / * x co-ord           * /
+  message.data.words[1]  = 0;       / * y co-ord           * /
+  message.data.words[2]  = 0;       / * mouse button state * /
+  message.data.words[3]  = 0;       / * window handle      * /
+  message.data.words[4]  = 0;       / * Icon number        * /
+  strcpy((char *)(message.data.bytes + 20), "Desktop");
+
+  Wimp_SendMessage(event_USERMESSAGE, &message, 0, 0);
+*/
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables
+--------------------------------------------------------------------------------
+*/
+shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts];
+char                *toolbarShortcuts;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Action
+   Purpose   : Perform an action on a Shortcut.
+   Status    : Implementation (V2.0.0)
+   V2.0.0    : 11/07/2002 - Recode - Split out individual action code.
+   V1.0.0    : 29/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_Action(shortcuts_menu *current, event_pollblock *event, int callType)
+{
+  db->fn_begin();
+
+  switch(current->entry)
+  {
+    case file:    Shortcuts_FileAction    (current, event, callType);  break;
+    case path:    Shortcuts_PathAction    (current, event, callType);  break;
+    case url:     Shortcuts_URLAction     (current, event, callType);  break;
+    case menu:    Shortcuts_MenuAction    (current, event, callType);  break;
+    case command: Shortcuts_CommandAction (current, event, callType);  break;
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Click
+   Purpose   : Shortcuts specific handler for menu clicks.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 15/05/2001 - Bugfix - Corrected handling of clicks on shortcuts
+                                     menus in menus. (rather than submenus)
+   V1.0.3    : 15/11/1999 - Update - No longer forces http fetches.
+   V1.0.2    : 30/10/1999 - Update - Main menu clicks now open the shortcuts
+                                     configuration window.
+   V1.0.1    : 03/10/1999 - Update - Now handles any shortcuts menu from the
+                                     iconbar.
+   V1.0.0    : 26/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Shortcuts_Click(event_pollblock *event, void *reference)
+{
+  shortcuts_menu   *current;
+  int               i       = (int)reference == 1 ? 0 : 1,
+                    j;
+
+
+  db->fn_begin();
+
+  if (i == 1 && event->data.selection[1] == -1)  /* A main-menu click on the shortcuts entry */
+  {
+    Wimp_StartTask("Filer_Run <MiniDisc$Dir>.!SCSetup");
+  }
+  else
+  {
+    /* Calculate where to start scanning the shortcuts structure from */
+    if (i == 1)  current = shortcutsArray[0].first;
+    else
+    {
+      current = d->currentMenu.context.shortcut->first;
+      i = 0;
+    }
+
+    /* Discover what was clicked upon */
+    while (event->data.selection[i] != -1)
+    {
+      db->tracef(1, "searching for item %d at menu depth %d ...", event->data.selection[i], i);
+
+      for (j = 0; j != event->data.selection[i]; j++) current = current->next;
+
+      db->tracef(1, "found entry called %s", current->shortcut.menu.label);
+
+      if (current->entry == menu)
+      {
+        db->trace(1, "entry was another shortcuts menu...");
+
+        if (event->data.selection[i+1] != -1)
+        {
+          db->trace(1, "menu entry was not clicked on, so we need to find the next open menu.");
+
+          for (j = 0;
+               strcmp(current->shortcut.menu.intMenuName, shortcutsArray[j].menuName) != 0;
+               j++);
+          current = shortcutsArray[j].first;
+        }
+      }
+      else if (current->entry == path)  break;  // Allow the 'MenuFilerRun' code to sort these out
+      i++;
+    }
+
+    Shortcuts_Action(current, event, 1);
+  }
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_CreateMenu
+   Purpose   : Shortcuts specific handler for menu warnings.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 03/01/2000 - Update - Moved empty menu handler in here.
+   V1.0.1    : 25/09/1999 - Bugfix - Move the submenu attaching code out.
+   V1.0.0    : 22/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+menu_ptr Shortcuts_CreateMenu(event_pollblock *event, shortcuts_menu *current, char *menuName)
+{
+  char       menuDesc[20];
+  menu_ptr   aMenu = NULL;
+  int        i     = 0;
+
+
+  db->fn_begin();
+
+  if (current == NULL)  /* An empty shortcuts menu */
+  {
+    Msgs_Lookup("shct.empty:~Empty Menu", menuDesc, 19);
+    aMenu = Menu_New(menuName, menuDesc);
+  }
+
+  else do
+  {
+    if (aMenu == NULL) aMenu = Menu_New    (menuName, "aMenuItem");
+    else               aMenu = Menu_Extend (aMenu,    "aMenuItem");
+
+    switch(current->entry)
+    {
+      case file:    Shortcuts_AddFile    (aMenu, i, current); break;
+      case url:     Shortcuts_AddURL     (aMenu, i, current); break;
+      case path:    Shortcuts_AddPath    (aMenu, i, current); break;
+      case menu:    Shortcuts_AddMenu    (aMenu, i, current); break;
+      case command: Shortcuts_AddCommand (aMenu, i, current); break;
+    }
+
+    current = current->next;
+    i++;
+  } while (current != NULL);
+
+  UNUSED(event);
+
+  db->fn_end();
+
+
+  return aMenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Follow
+   Purpose   : Opens Shortcuts menu as a main MiniDisc submenu.
+   Status    : Implementation (V1.0.8)
+   V1.0.8    : 22/02/2000 - Bugfix - Fixed 'level-1' menu problems.
+   V1.0.7    : 17/02/2000 - Update - Ensure we don't recreate a menu if we've
+                                     already built a perfectly good one ;-)
+   V1.0.6    : 05/02/2000 - Update - Removed 'mtype' enumerate (doing nothing)
+   V1.0.5    : 03/01/2000 - Update - Another bugfix & some tidying...
+   V1.0.4    : 29/12/1999 - Bugfix - Now handles path submenus from shortcuts
+   V1.0.3    : 09/12/1999 - Bugfix - Now handles empty shortcuts menus.
+   V1.0.2    : 02/10/1999 - Bugfix - Now handles recursive path submenus :-)))
+   V1.0.1    : 25/09/1999 - Update - Moved submenu attaching code from the
+                                     'CreateMenu' routine here to avoid
+                                     problems when opening the root menu from
+                                     the iconbar.
+   V1.0.0    : 21/09/1999 - Preliminary implementation.
+   Notes     : reference == 1 == From MiniDisc main menu.
+--------------------------------------------------------------------------------
+*/
+BOOL Shortcuts_Follow(event_pollblock *event, void *reference)
+{
+  char           *titlePos = NULL;
+  shortcuts_menu *current;
+  menu_item      *menuItem;
+  menu_ptr        subMenu;
+  char            menuName[20];
+  int             subMenuLevel,
+                  i;
+
+
+  db->fn_begin();
+
+  if (d->currentMenu.type == MD_menu_main)
+  {
+    current      = shortcutsArray[0].first;
+    subMenuLevel = 1;
+    subMenu      = (menu_ptr)d->currentMenu.menuptr;
+    menuItem     = MenuGet_Item(subMenu, event->data.message.data.menuwarn.selection[0]);
+    subMenu      = menuItem->submenu.menu;
+    if (event->data.message.data.menuwarn.selection[1] != -1)
+      menuItem   = MenuGet_Item(subMenu, event->data.message.data.menuwarn.selection[1]);
+  }
+  else
+  {
+    current      = d->currentMenu.context.shortcut->first;
+    subMenuLevel = 0;
+    subMenu      = (menu_ptr)d->currentMenu.menuptr;
+    menuItem     = MenuGet_Item(subMenu, event->data.message.data.menuwarn.selection[0]);
+  }
+
+  /* Work out which menu we're going to display */
+  while (event->data.message.data.menuwarn.selection[subMenuLevel] != -1)
+  {
+    /* Wade through a shortcuts menu to a specific entry to match the menu index. */
+    for (i = 0; i != event->data.message.data.menuwarn.selection[subMenuLevel]; i++)
+      current = current->next;
+
+    if (current->entry == menu)  /* Found a shortcuts menu submenu. */
+    {
+      /* Record entry text for the menu title */
+      titlePos = current->shortcut.menu.label;
+
+      /* Go along each shortcuts menu, finding the submenu matched. */
+      for (i = 0; strcmp(current->shortcut.menu.intMenuName, shortcutsArray[i].menuName) != 0;
+           i++);
+
+      /* Assign 'current' to the top of the submenu list we're interested in. */
+      current  = shortcutsArray[i].first;
+
+      /* Get hold of a pointer to the selected item in the current submenu */
+      menuItem = MenuGet_Item(subMenu, event->data.message.data.menuwarn.selection[subMenuLevel]);
+
+      /* Get the submenu pointer of this item */
+      subMenu  = menuItem->submenu.menu;
+
+      /* Descend one level deeper into the menu structure... */
+      subMenuLevel++;
+    }
+
+
+    else if (current->entry == path)  /* Found a directory path submenu */
+    {
+      d->currentMenu.allowInApps = current->shortcut.path.allowInApps;
+      d->currentMenu.hidePling   = current->shortcut.path.hidePling;
+       /*  This next bit seems obsolete, but it's been so long since I've looked at this code that
+            I'm not too sure.  (JMT, 16/08/2000)
+      while(event->data.message.data.menuwarn.selection[++subMenuLevel] != -1)
+      {
+       menuItem = MenuGet_Item(subMenu,event->data.message.data.menuwarn.selection[subMenuLevel]);
+        subMenu = menuItem->submenu.menu;
+      } */
+
+      /* This next sample should be useful when we start to use '-up' path submenus :
+      MenuBuild_DriveMenu (event,
+        event->data.message.data.menuwarn.selection[subMenuLevel+1] == -1 ? TRUE : FALSE); */
+
+      dirMenu_FromDrive (event, FALSE);
+
+      db->fn_end();
+
+      return TRUE;  /* Go home, NOW! */
+    }
+  }
+
+  /* Shortcuts menu found, so create, attach & display. */
+
+  if (titlePos == NULL)  /* Use default menu title if none available */
+  {
+    Msgs_Lookup("menu.shortcut:Shortcuts", menuName, 19);  /* Read default menu title */
+    titlePos = menuName;
+  }
+
+  /* Check that we haven't already created this menu. */
+  if (menuItem->submenu.value < 2)
+  {
+    subMenu                = Shortcuts_CreateMenu (event, current, titlePos);
+    menuItem->submenu.menu = subMenu;
+  }
+
+  Wimp_CreateSubMenu (subMenu, ((event_pollblock *)event)->data.message.data.menuwarn.openpos.x,
+                               ((event_pollblock *)event)->data.message.data.menuwarn.openpos.y);
+
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Click2
+   Purpose   : Shortcuts specific handler for menu clicks.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Shortcuts_Click2(event_pollblock *event, void *reference)
+{
+  mouse_block  ptr;
+
+
+  db->fn_begin();
+
+  Shortcuts_Click (event, reference);
+
+  /* Redisplay the menu if required */
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) Menu_ShowLast ();
+  else
+  {
+    /* Dispose of menu structures here */
+    Event_Release    (event_MENU, event_ANY, event_ANY, Shortcuts_Click2, (void *)1);
+    EventMsg_Release (message_MENUWARNING, (window_handle) menu_currentopen, Shortcuts_Follow);
+  }
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_OpenMenu
+   Purpose   : Opens Shortcuts menu from direct call, rather than as a main
+               MiniDisc submenu. Called when select / adjust clicked on icon.
+   Status    : Implementation (V1.0.3)
+   V1.0.3    : 22/12/1999 - Bugfix - No longer tries to create a menu if we
+                                     fail to find a match in the array.
+   V1.0.2    : 13/12/1999 - Update - Now updates open menu details.
+   V1.0.1    : 25/09/1999 - Update - Now uses subMenuArray[0] rather than
+                                     menuTop.
+   V1.0.0    : 21/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_OpenMenu(event_pollblock *event)
+{
+  char        *configName;
+  mouse_block  ptr;
+  int          i,
+               action_modifiers = 0;
+
+
+  db->fn_begin();
+
+  if (XUtil_KeyPressed(-1)) action_modifiers += MD_iconbar_SHIFT;
+  if (XUtil_KeyPressed(-2)) action_modifiers += MD_iconbar_CTRL;
+  if (XUtil_KeyPressed(-3)) action_modifiers += MD_iconbar_ALT;
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) configName = MDCfg->iconbar.adjust[action_modifiers];
+  else                        configName = MDCfg->iconbar.select[action_modifiers];
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    if (strcmp(shortcutsArray[i].menuName, configName) == 0)
+    {
+      mainmenu = Shortcuts_CreateMenu(event, shortcutsArray[i].first, configName);
+      d->currentMenu.menuptr          = (int)mainmenu;
+      d->currentMenu.type             = MD_menu_shortcut;
+      d->currentMenu.context.shortcut = &(shortcutsArray[i]);
+
+      Event_Claim    (event_MENU, event_ANY,              event_ANY, Shortcuts_Click2, (void *)1);
+      EventMsg_Claim (message_MENUWARNING, (window_handle) mainmenu, Shortcuts_Follow, (void *)1);
+      Menu_Show      (mainmenu, event->data.mouse.pos.x, -1);
+    }
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Actions
+   Purpose   : Shortcuts specific handlers for main menu clicks/warnings.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  db->fn_begin();
+
+  switch(mevent)
+  {
+    case click:  Shortcuts_Click  ((event_pollblock *)event, NULL); break;
+    case follow: Shortcuts_Follow ((event_pollblock *)event, NULL); break;
+  }
+
+  UNUSED(fsn_desc);
+  UNUSED(drivenum);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_List
+   Purpose   : Add a menu entry in the main MiniDisc menu for Shortcuts
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *Shortcuts_List (void *mainmenu)
+{
+  db->fn_begin();
+
+  db->trace(100, "Displaying Shortcuts in main MD menu");
+
+  DriveMenuSize++;
+  mainmenu = ibMenu_Add (mainmenu, "Shortcuts", "smd_links", 1, 0);
+  proceduresInfo[DriveMenuSize].proc_ptr = Shortcuts_Actions;
+  proceduresInfo[DriveMenuSize].drivenum = 0;
+  if (MDCfg->shortcut.menuPos == 0)  MenuRuleOff(mainmenu, DriveMenuSize);
+
+  db->fn_end();
+
+
+  return mainmenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcut_Dispose
+   Purpose   : Dispose of a shortcut from a list.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 07/11/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcut_Dispose (shortcuts_menu **item)
+{
+  db->fn_begin();
+
+  switch ((*item)->entry)
+  {
+    case file:    Shortcut_FileDispose    (item);  break;
+    case menu:    Shortcut_MenuDispose    (item);  break;
+    case command: Shortcut_CommandDispose (item);  break;
+    case url:     Shortcut_URLDispose     (item);  break;
+    case path:    Shortcut_PathDispose    (item);  break;
+  }
+
+  free (*item);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : ShortcutsList_Dispose
+   Purpose   : Dispose of a shortcuts structure (RECURSIVELY!)
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 12/02/2000 - Bugfix - Now checks pointer for NULL first.
+   V1.0.0    : 07/11/1999 - Preliminary implementation.
+   Notes     : Does not dump top level, as we only have a copy of the pointer.
+--------------------------------------------------------------------------------
+*/
+void ShortcutsList_Dispose (shortcuts_menu *item)
+{
+  db->fn_begin();
+
+  if (item != NULL)
+  {
+    if (item->next != NULL)
+    {
+      ShortcutsList_Dispose (item->next);
+      Shortcut_Dispose      (&(item->next));
+    }
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : SCEdit_DumpShortcuts
+   Purpose   : Dispose of a shortcuts structure.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 05/12/1999 - Update - Now uses DeskLib 'Mem' functions.
+   V1.0.0    : 07/11/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void SCEdit_DumpShortcuts (shortcuts_menu_head *head)
+{
+  int i;
+
+
+  db->fn_begin();
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    if (head[i].first != NULL)
+    {
+      ShortcutsList_Dispose (head[i].first);
+      Shortcut_Dispose      (&(head[i].first));
+    }
+    head[i].menuName[0] = 0;
+    head[i].first       = NULL;
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Reload
+   Purpose   : Reload the shortcuts from file in response to a message.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 19/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Shortcuts_Reload(event_pollblock *poll_block, void *reference)
+{
+  int  i;
+
+
+  db->fn_begin();
+
+  SCEdit_DumpShortcuts (shortcutsArray);
+
+  memset(shortcutsArray, 0, maximumNumberOfShortcuts * sizeof(shortcuts_menu_head));
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    shortcutsArray[i].menuName[0] = 0;
+    shortcutsArray[i].first       = NULL;
+  }
+
+  /* Initialise top-level shortcuts menu */
+  Msgs_Lookup("menu.shortcut:Shortcuts", shortcutsArray[0].menuName, 19);
+  shortcutsArray[0].first = NULL;
+
+  Shortcuts_Load ("<MiniDisc$Shortcuts>");
+
+  Toolbar_Reinit();  // In-case a shourtcuts menu used on a toolbar has been changed.
+
+  UNUSED(poll_block);
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_Init
+   Purpose   : Initialise (Load) Shortcuts into a menu tree structure.
+   Status    : Implementation (V3.0.4)
+   V3.0.4    : 23/03/2002 - Update - Now also records the default toolbar menu
+   V3.0.3    : 21/10/2000 - Bugfix - Updated array initialisation code.
+   V3.0.2    : 24/07/2000 - Update - Fixed config creation on machines with
+                                     'old' boot structure.
+   V3.0.1    : 21/01/2000 - Update - Now creates config directory if needed.
+   V3.0.0    : 03/01/2000 - ReCode - Moved loader code into 'Shortcuts_Load',
+                                     this now becomes a dispatching procedure.
+   V2.1.2    : 08/12/1999 - Update - No longer uses 'parent' pointers.
+   V2.1.1    : 05/12/1999 - Update - Now uses DeskLib 'Mem' functions.
+   V2.1.0    : 13/11/1999 - Update - Moved each shortcut type code out into
+                                     separate procedures.
+   V2.0.1    : 06/11/1999 - Update - Slight hack to include temporary labels.
+   V2.0.0    : 02/10/1999 - ReCode - Improved shortcuts file design.
+   V1.0.1    : 22/09/1999 - BugFix - No longer tries to re-define a submenu if
+                                     it already exists.
+   V1.0.0    : 21/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_Init (void)
+{
+  _kernel_swi_regs  regs;
+  int               i;
+
+
+  db->fn_begin();
+
+  db->trace(100, "Initialising...");
+
+  /* Initialise our array */
+  memset(shortcutsArray, 0, maximumNumberOfShortcuts * sizeof(shortcuts_menu_head));
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    shortcutsArray[i].menuName[0] = 0;
+    shortcutsArray[i].first       = NULL;
+  }
+
+  /* Initialise top-level shortcuts menu */
+  Msgs_Lookup("menu.shortcut:Shortcuts", shortcutsArray[0].menuName, 19);
+  shortcutsArray[0].first = NULL;
+
+  /* Create a default shortcuts file if one doesn't already exist */
+  if (!File_Exists("<MiniDisc$Choices>.Shortcuts"))
+  {
+    Msgs_Report(MD_Err_noscfile, "err.noscfile");
+
+    /* (Because the DeskLib Fn won't allow for existence checking without a var buffer.) */
+    regs.r[0] = (int)"Choices$Write";
+    regs.r[1] = NULL;
+    regs.r[2] = -1;
+    regs.r[3] = 0;
+    regs.r[4] = 0;
+    _kernel_swi(SWI_OS_ReadVarVal, &regs, &regs);
+
+    if (regs.r[2] != 0)  /* New Boot structure */
+    {
+      if (!File_Exists("<Choices$Write>.MiniDisc"))  OS_CLI("cdir <Choices$Write>.MiniDisc");
+    }
+    else                 /* Old boot structure */
+    {
+      if (!File_Exists("<MiniDisc$Dir>.Choices"))    OS_CLI("cdir <MiniDisc$Dir>.Choices");
+    }
+    OS_CLI("Copy MiniDiscRes:defaults.Shortcuts <MiniDisc$Choices>.Shortcuts ~C~V");
+
+    /* Report if we fail to copy in a default shortcuts file */
+    if (!File_Exists("<MiniDisc$Choices>.Shortcuts"))  Msgs_Report(MD_Err_cscfail, "err.cscfail");
+  }
+
+  /* Load the shortcuts file. */
+  Shortcuts_Load ("<MiniDisc$Shortcuts>");
+
+  /* Register a message handler to cope with 'reload shortcuts' messages from the builder app. */
+  EventMsg_Claim ((message_action)MDMsg_ReloadShortcuts, event_ANY, Shortcuts_Reload, NULL);
+
+  /* Initialise which Shortcuts menu will be attached to the toolbar. */
+  toolbarShortcuts = MDCfg->toolbar.includeMenu;
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_TBButts
+   Purpose   :
+   Status    :
+   V1.0.0    : .
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_TBButts (char *toolbarButtons)
+{
+  db->fn_begin();
+
+  toolbarShortcuts = toolbarButtons;
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_TBMenuClicks
+   Purpose   : After a menu click in the 'Change Shortcuts buttons' menu over
+               the toolbar, alter the configuration, then force toolbar reset.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 23/03/2002 - Initial implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Shortcuts_TBMenuClicks (event_pollblock *event, void *reference)
+{
+  message_block  message;
+
+
+  db->fn_begin();
+
+  toolbarShortcuts = shortcutsArray[event->data.selection[0]].menuName; /* Flag menu for toolbar */
+
+  message.header.sender  = NULL;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = (message_action)MDMsg_ReloadShortcuts;
+  message.header.size    = sizeof(message);
+
+  Wimp_SendMessage (event_SEND, &message, 0, NULL);   /* Force a toolbar reset. */
+
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_TBHandler
+   Purpose   : Process mouse button clicks on (Shortcuts) toolbar buttons.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 23/03/2002 - Initial implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Shortcuts_TBHandler (event_pollblock *event, void *reference)
+{
+  shortcuts_menu *current = NULL;
+  char            menuTitle[20];
+  menu_ptr        aMenu;
+  int             i,
+                  j;
+
+
+  db->fn_begin();
+
+  if ((int)reference == 2)  // Only process mouse clicks
+  {
+    switch(event->data.mouse.button.value)
+    {
+      case button_SELECT:  /* Perform an action, based upon the button clicked upon */
+      case button_ADJUST:
+        for (i = 0; i < maximumNumberOfShortcuts; i++)
+        {
+          if (strcmp(shortcutsArray[i].menuName, tbButtons[event->data.mouse.icon].interface) == 0)
+          {
+            current = shortcutsArray[i].first;
+            for(j = 0; j < tbButtons[event->data.mouse.icon].device; j++)  current = current->next;
+            break;  /* exit (outer) for loop. */
+          }
+        }
+        Shortcuts_Action (current, event, event->data.mouse.button.value == button_SELECT ? 0 : 2);
+        break;
+
+      case button_MENU:  /* Build a menu of Shortcuts menus, to choose some new buttons */
+        Msgs_Lookup ("tbar.scnew", menuTitle, 19);
+        for (i = 0, aMenu = NULL; i < maximumNumberOfShortcuts; i++)
+        {
+          if (shortcutsArray[i].menuName[0] != 0)
+          {
+            if (aMenu == NULL)  aMenu = Menu_New    (menuTitle, shortcutsArray[i].menuName);
+            else                aMenu = Menu_Extend (aMenu,     shortcutsArray[i].menuName);
+          }
+        }
+
+        /* Create an event handler for the menu, then show it */
+        Event_Claim (event_MENU, event_ANY, event_ANY, Shortcuts_TBMenuClicks, NULL);
+        Menu_Show   (aMenu, event->data.mouse.pos.x, event->data.mouse.pos.y);
+        break;
+    }
+  }
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_AddTBIcon
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_AddTBIcon (char *smallSprite, int   shrinkSprite, char *bigSprite,
+                          char *infoText,    char *menuName,     int   index)
+{
+  int  i;
+
+
+  db->fn_begin();
+
+  i = ToolBar_AddIcon(smallSprite, shrinkSprite, bigSprite, infoText, (tb_proc)Shortcuts_TBHandler);
+
+  tbButtons[i].device = index;
+  strcpy(tbButtons[i].interface, menuName);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_UpdateTBIcons
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_UpdateTBIcons (char *tbMenu)
+{
+  shortcuts_menu *current;
+  int             i;
+
+
+  db->fn_begin();
+
+  for (i = 0; i < maximumNumberOfShortcuts && strcmp(shortcutsArray[i].menuName, tbMenu) != 0; i++);
+
+  if (i != maximumNumberOfShortcuts)     // We stopped before the end - assume we found something
+  {
+    current = shortcutsArray[i].first;   // Point to the start of the Shortcuts menu
+
+    if (current != NULL)                 // Don't bother if the menu is empty.
+    {
+      i = 0;  // Menu item index
+
+      do  // for each entry in the menu...
+      {
+        switch(current->entry)
+        {
+          case file:
+          case path:     Shortcut_FileAddTBIcon    (current,                    i, tbMenu);  break;
+          case url:      Shortcut_URLAddTBIcon     (&current->shortcut.url,     i, tbMenu);  break;
+          case menu:     Shortcut_MenuAddTBIcon    (&current->shortcut.menu,    i, tbMenu);  break;
+          case command:  Shortcut_CommandAddTBIcon (&current->shortcut.command, i, tbMenu);  break;
+        }
+
+        if (current->ruledOff)  ToolBar_AddGap();
+
+        current = current->next;
+        i++;  // increment menu entry index
+      } while (current != NULL);
+
+      if (i != 0)  ToolBar_AddGap();
+    }
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_AddTBIcons
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_AddTBIcons (void)
+{
+  db->fn_begin();
+
+  Shortcuts_UpdateTBIcons (toolbarShortcuts);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Shortcuts_AddHandlers
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Shortcuts_AddHandlers (void *scMenu)
+{
+  db->fn_begin();
+
+  Event_Claim    (event_MENU, event_ANY,            event_ANY, Shortcuts_Click2, (void *)1);
+  EventMsg_Claim (message_MENUWARNING, (window_handle) scMenu, Shortcuts_Follow, (void *)1);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: shortcuts.cpp,v $
+   Revision 1.4  2003/10/05 16:00:53  jtemple
+   General check-in for release testing.
+
+   Revision 1.3  2003/09/13 20:01:41  jtemple
+   Replaced Mem_ functions with malloc/free.
+   Bugfix for Shortcuts_Follow where the top item in a submenu was
+   a path submenu - we were traversing where we shouldn't.  :-(
+
+   Revision 1.2  2003/08/29 19:48:13  jtemple
+   code & comments tidied.  debugging calls improved
+
+
+--------------------------------------------------------------------------------
+*/
+
+

@@ -1,0 +1,51 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/misc.h                                                   *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_MISC
+#define MDH_CFG_MISC
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_msc_xxxx                                                     *
+ * Purpose   : Miscelaneous options pane icon numbers.                         *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_msc_START    4
+#define OW_msc_QUIT     5
+#define OW_msc_STARTED  6
+#define OW_msc_QUITED   7
+#define OW_msc_DRIVESO 10
+#define OW_msc_HIDECTR 11
+#define OW_msc_BOOT    14
+#define OW_msc_PROCESS 15
+#define OW_msc_QUICKP  17
+#define OW_msc_SPLASH  18
+#define OW_msc_INAPPS  21
+#define OW_msc_NOPLING 20
+#define OW_msc_SCANDEV 22
+#define OW_msc_RAMCFRM 23
+#define OW_msc_USEICON 24
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_Misc          (void);
+void  OWClose_Misc         (void);
+BOOL  OptionPane_ClickMisc (event_pollblock *event, void *reference);
+BOOL  OPMenu_Misc_boot     (event_pollblock *event, menu_ptr menu);
+
+
+#endif

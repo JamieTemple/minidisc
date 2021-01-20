@@ -1,0 +1,48 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/shortcuts.h                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_SHORTCUTS
+#define MDH_CFG_SHORTCUTS
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_shc_xxxx                                                     *
+ * Purpose   : Shortcuts options pane icon numbers.                            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_shc_INCLUDE  2
+#define OW_shc_MENPOSM  3
+#define OW_shc_MENPOSD  4
+#define OW_shc_MENPOSL  5
+#define OW_shc_EDITSHC  7
+#define OW_shc_QUKDRAG  8
+#define OW_shc_PINBORD 17
+#define OW_shc_SHOWMNM 18
+#define OW_shc_SHOWMND 19
+#define OW_shc_SHOWMNL 20
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_Shortcut                 (void);
+void  OWClose_Shortcut                (void);
+BOOL  OptionPane_ClickShortcut        (event_pollblock *event, void *reference);
+BOOL  OptionPane_MenuShortcutsPos     (event_pollblock *event, menu_ptr menu);
+BOOL  OptionPane_MenuShortcutsMenu    (event_pollblock *event, menu_ptr menu, int icon);
+BOOL  OptionPane_MenuShortcutsPinMenu (event_pollblock *event, menu_ptr menu);
+
+
+#endif

@@ -1,0 +1,40 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/imagefs.h                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_IMAGEFS
+#define MDH_CFG_IMAGEFS
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_ifs_xxxx                                                     *
+ * Purpose   : Image Filing-systems options pane icon numbers.                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_ifs_RESINC  2
+#define OW_ifs_RESINT 11
+#define OW_ifs_RESNOI  3
+#define OW_ifs_RESAPP  4
+#define OW_ifs_MEMINC  7
+#define OW_ifs_MEMINT 12
+#define OW_ifs_MEMNOI  8
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_ImageFS   (void);
+void  OWClose_ImageFS  (void);
+
+
+#endif

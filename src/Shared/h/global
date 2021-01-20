@@ -1,0 +1,454 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/global.h,v $
+
+   $Revision: 1.6 $
+   $Date: 2004/04/17 14:57:06 $
+
+   Generic header file.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#include "dbsuite/dblib.h"
+
+#ifndef MDH_GLOBAL
+#define MDH_GLOBAL
+
+#include "shared/config.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include <ctype.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+
+
+/* This rather complicated set of preprocessor directives
+ * ensures that cfront won't throw a shit-fit when we
+ * include stdlib.h in C++ files.
+ */
+#ifdef __cplusplus
+  #ifdef __STDC_VERSION__
+    #define __STDC_VERSION_BACKUP__ __STDC_VERSION__
+    #undef __STDC_VERSION__
+    #include <stdlib.h>
+    #define __STDC_VERSION__ __STDC_VERSION_BACKUP__
+    #undef __STDC_VERSION_BACKUP__
+  #else
+    #include <stdlib.h>
+  #endif  // ifdef __STDC_VERSION__
+#else
+  #include <stdlib.h>
+#endif  // ifdef __cplusplus
+
+
+#include "kernel.h"
+
+#include "shared/shortcuts.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macros
+--------------------------------------------------------------------------------
+*/
+#define IDEFS_None   0
+#define IDEFS_Simtec 1
+#define IDEFS_Other  2
+
+#define MDTrace  db_tracef
+
+#ifndef BOOL_DEFINED
+#define BOOL         unsigned
+#define bool         BOOL
+#define TRUE         1
+#define FALSE        0
+#define BOOL_DEFINED
+#endif
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MDMsg_<xxx>
+   Purpose   : MiniDisc Wimp Messages definitions.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define MDMsg_Block 0x091300
+
+#define MDMsg_TitleMenu        ((message_action)(MDMsg_Block + 0x01))
+#define MDMsg_ShowShortcut     ((message_action)(MDMsg_Block + 0x02))
+#define MDMsg_PathMenu         ((message_action)(MDMsg_Block + 0x03))
+#define MDMsg_PopUpWin         ((message_action)(MDMsg_Block + 0x04))
+#define MDMsg_ToolbarAlt       ((message_action)(MDMsg_Block + 0x05))
+#define MDMsg_ReloadShortcuts  ((message_action)(MDMsg_Block + 0x06))
+#define MDMsg_NoMoreMenus      ((message_action)(MDMsg_Block + 0x07))
+#define MDMsg_ReloadChoices    ((message_action)(MDMsg_Block + 0x08))
+#define MDMsg_PinboardSave     ((message_action)(MDMsg_Block + 0x09))
+#define MDMsg_SetupToFront     ((message_action)(MDMsg_Block + 0x0a))
+#define MDMsg_SBuilderToFront  ((message_action)(MDMsg_Block + 0x0b))
+#define MDMsg_ToolbarHide      ((message_action)(MDMsg_Block + 0x0c))
+#define MDMsg_ToolbarHideTips  ((message_action)(MDMsg_Block + 0x0d))
+#define MDMsg_CtrlOpen         ((message_action)(MDMsg_Block + 0x0e))
+#define MDMsg_CtrlOpenDir      ((message_action)(MDMsg_Block + 0x0f))
+#define MDMsg_CoolSwitch_Open  ((message_action)(MDMsg_Block + 0x10))
+#define MDMsg_CoolSwitch_Close ((message_action)(MDMsg_Block + 0x11))
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : menuIconFlags
+   Purpose   : Icon flags for icons appearing in the shortcuts builder window.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/11/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define menuIconFlags 0x1701a193    // Double / Click / Drag
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : menuIconHeight
+   Purpose   : The height of icons appearing in the shortcuts builder window.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/11/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define menuIconHeight 44
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MakeLower
+   Purpose   : Converts a given string to lower case.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : You must also supply an integer variable for use in the loop.
+--------------------------------------------------------------------------------
+*/
+#define MakeLower(aBuffer, anInteger)                             \
+  for(anInteger = 0; anInteger < strlen(aBuffer); anInteger++)    \
+    aBuffer[anInteger] = tolower(aBuffer[anInteger]);
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MaxMenuSize
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : I HAVE NO IDEA WHERE THIS IS USED!
+--------------------------------------------------------------------------------
+*/
+#define MaxMenuSize 256
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : buffer_size
+   Purpose   : Standard buffer size macro.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define buffer_size 1024
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : wimp_MAXNAME
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define wimp_MAXNAME 12
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MD_Err_xxxxx
+   Purpose   : MiniDisc Error Numbers
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 13/02/2000 - Update - Added _sselected
+   V1.0.1    : 03/01/2000 - Update - Now uses allocated error block prefix.
+   V1.0.0    : 24/11/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define MD_Err_PREFIX     0x11111100
+#define MD_Err_unknown    MD_Err_PREFIX + 0x0000
+
+#define MD_Err_noconf     MD_Err_PREFIX + 0x0010
+#define MD_Err_noscfile   MD_Err_PREFIX + 0x0011
+#define MD_Err_cscfail    MD_Err_PREFIX + 0x0012
+#define MD_Err_noignores  MD_Err_PREFIX + 0x0013
+
+#define MD_Err_nonuri     MD_Err_PREFIX + 0x0020
+
+#define MD_Err_srename    MD_Err_PREFIX + 0x0030
+#define MD_Err_sdelete    MD_Err_PREFIX + 0x0031
+#define MD_Err_sexists    MD_Err_PREFIX + 0x0032
+#define MD_Err_snotfound  MD_Err_PREFIX + 0x0033
+#define MD_Err_sselected  MD_Err_PREFIX + 0x0034
+#define MD_Err_nolauncher MD_Err_PREFIX + 0x0035
+
+
+/*
+--------------------------------------------------------------------------------
+   Macro     : MD_iconbar_xxxx
+   Purpose   : Iconbar action modifiers
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+#define MD_iconbar_SHIFT  1
+#define MD_iconbar_CTRL   2
+#define MD_iconbar_ALT    4
+
+
+/*
+--------------------------------------------------------------------------------
+   Function  : controlmenu_fn
+   Purpose   : Function prototype for main menu handlers.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 08/09/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef void (*controlmenu_fn) (void *event, char *fsn_desc, int drivenum);
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerate : boot_stage
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/06/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  notComplete = 0,
+  scanDrives,
+  scanCDFS,
+  scanCDFS2,
+  noScans,
+  allDone,
+  windowClosed
+} boot_stage;
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerate : MD_menu_type
+   Purpose   : Possible different types of menu MiniDisc can open.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  MD_menu_main,
+  MD_menu_shortcut,
+  MD_menu_directory
+} MD_menu_type;
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerate : MenuEventType
+   Purpose   : Possible types of events passed to FSn-specific menu handlers.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  click,
+  follow
+} MenuEventType;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : proc_info
+   Purpose   : Holds details of FSn-specific handlers.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : Holds a procedure to call when a specific FSn / device
+               combination event occurs.
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  char fsn_desc[32];
+  int  drivenum;
+  void (*proc_ptr)(char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+} proc_info;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : openmenu_info
+   Purpose   : Descriptor block for the currently open MiniDisc menu.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 13/12/1999 - Update - Includes a boolean for the main menu.
+   V1.0.0    : 12/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int          menuptr;  /* A DeskLib menu pointer made friendly to all */
+  int          allowInApps;
+  int          hidePling;
+  MD_menu_type type;
+
+  union
+  {
+    char                *dirPath;
+    shortcuts_menu_head *shortcut;
+    int                  controlOpen;  /* boolean */
+  } context;
+
+} openmenu_info;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : app_event_info
+   Purpose   : Historic application event record
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+typedef union
+{
+    unsigned int value;
+
+  struct
+  {
+    unsigned int event1   :  1;
+    unsigned int event2   :  1;
+    unsigned int event3   :  1;
+    unsigned int event4   :  1;
+    unsigned int event5   :  1;
+    unsigned int therest  : 27;
+  } data;
+
+} app_event_info;
+
+
+/*
+--------------------------------------------------------------------------------
+   Structure : app_info
+   Purpose   : General application variables container.
+   Status    : Implementation (V1.0.6)
+   V1.0.6    : 04/06/2002 - Update - Added app_icons array.
+   V1.0.5    : 22/03/2002 - Update - Extended ignoreFSNs array to 24 chars.
+   V1.0.4    : 15/07/2000 - Update - Added 'IDEFSVersion'.
+   V1.0.3    : 28/01/2000 - Update - Added 'ignoreFSNs'. (Max 16 entries)
+   V1.0.2    : 10/01/2000 - Update - Added a number of strcutures that are
+                                     currently being held separately ('@')
+                                     which I would like to centralise here.
+   V1.0.1    : 10/09/1999 - Update - Now includes the application events
+                                     structure.
+   V1.0.0    : 03/09/1999 - Preliminary implementation.
+   Notes     : Only one copy exists, pointed to by module workspace pointer.
+--------------------------------------------------------------------------------
+*/
+typedef struct
+{
+  int                  task;                             /* Application task hanlde             */
+  char                 task_name[20];                    /* Application name                    */
+  char                 app_icon[13];                     /* Application icon name               */
+  char                *messages;                         /* Accepted application messages       */
+  unsigned int         version;                          /* Application version No.             */
+  void                *sprites;                          /* Pointer to application sprite area  */
+  int                  OSVersion;                        /* Installed RiscOS Version number     */
+  int                  IDEFSVersion;                     /* IDEFS manufacturer                  */
+  int                  cfgVersion;                       /* Configuration file version          */
+  int                  iconType;                         /* Currently used iconbar icon type    */
+  boot_stage           bootStage;                        /* Current state of task-slicer        */
+  int                  quit;                             /* FALSE until we're ready to quit.    */
+  openmenu_info        currentMenu;                      /* Currently open menu details struct. */
+  proc_info            proceduresInfo[MaxMenuSize];      /*                                   @ */
+  shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts]; /*                           @ */
+  char                 ignoreFSNs[16][24];               /* Array of filing systems to ignore.  */
+  app_config           config;                           /* Application configuration structure */
+  app_event_info       events;                           /* Application events record           */
+  char                *smartConfig[4096];
+} app_info;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   External Variables
+--------------------------------------------------------------------------------
+*/
+#ifdef BUILD_MINIDISC
+extern char        MD_tmp[buffer_size];
+#endif
+
+extern app_info   *d;
+extern app_config *MDCfg;
+
+extern int         OSVersion;
+
+extern int         AppInDesktop;       // boolean
+extern int         MD_ModeHasChanged;  // boolean
+extern int         MD_FilerStarted;    // boolean
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: global.h,v $
+   Revision 1.6  2004/04/17 14:57:06  jtemple
+   Added task switcher option support.
+   Separated out configuration options into separate file for convenience.
+
+   Revision 1.5  2004/04/14 14:44:25  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.4  2003/09/09 17:45:50  jtemple
+   Changed static char arrays in shortcuts config (shortcutMenu) and toolbar config (includeMenu) to be pointers (as they were in fact being use ad pointers before anyhow!).
+
+   Revision 1.3  2003/08/13 22:40:49  jtemple
+   Replaced pcDelete filter option with filerOpen.  Also added a new message (0x0f) to support the filer-open filter.
+
+   Revision 1.2  2003/08/12 22:30:49  jtemple
+   cvs tag info removed.  Also code comments tidied.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

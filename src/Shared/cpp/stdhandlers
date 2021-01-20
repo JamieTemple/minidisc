@@ -1,0 +1,372 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/stdhandlers.cpp,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:01:05 $
+
+   'Standard' event handlers.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include <stdarg.h>
+
+#include "shared/global.h"
+
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+
+#include "DeskLib:Dialog.h"
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Pane.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:Sound.h"
+#include "DeskLib:Template.h"
+#include "DeskLib:WimpSWIs.h"
+#include "DeskLib:Window.h"
+
+
+/* MiniDisc include files */
+#ifdef BUILD_MINIDISC
+#include "MiniDisc/core/menu.h"
+
+#include "MDSetup/main.h"
+#endif
+
+
+/* MiniDisc Setup include files */
+#ifdef BUILD_MDSETUP
+#include "MDSetup/main.h"
+#endif
+
+
+/* Shortcuts Builder include files */
+#ifdef BUILD_SCBUILDER
+#include "SCSetup/core.h"
+#endif
+
+
+
+
+#ifdef BUILD_MINIDISC
+extern window_handle proginfo;
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Close_Window
+   Purpose   : Generic event handler for window closing events.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL stdhandlers_Close_Window (event_pollblock *event, void *reference)
+{
+  db->fn_begin();
+
+  db->trace (80, "Close window event occurred");
+
+
+  if(Pane_GetSysHandle (event->data.openblock.window) == NULL)
+       Window_Delete (event->data.openblock.window);
+  else Pane_Delete   (event->data.openblock.window);
+
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Open_Window
+   Purpose   : Generic event handler for window opening events.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL stdhandlers_Open_Window (event_pollblock *event, void *reference)
+{
+  db->fn_begin();
+
+  db->trace (80, "Open window event occurred");
+
+  Wimp_OpenWindow (&(event->data.openblock));
+
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Mode_Change
+   Purpose   : Event handler to look after mode changes.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL stdhandlers_Mode_Change (event_pollblock *event, void *reference)
+{
+  wimp_point old_eig = screen_eig;
+
+
+  db->fn_begin();
+
+  db->trace (80, "Screen mode change event occurred");
+
+  Screen_CacheModeInfo ();
+
+  if (old_eig.y != screen_eig.y || old_eig.x != screen_eig.x)
+    Window_ModeChange();
+
+#ifndef BUILD_MDSETUP
+  MD_ModeHasChanged = TRUE;
+#endif
+
+  UNUSED(event);
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return FALSE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : HelpHandler
+   Purpose   : Process requests for interactive help.
+   Status    : Implementation (V2.0.1)
+   V2.0.1    : 03/11/2001 - Bugfix - Now correctly passes 200 char. messages.
+   V2.0.0    : 08/01/2000 - Update - Separated from configuration code to
+                                     allow help on other parts of MiniDisc.
+   V1.0.3    : 05/01/2000 - Update - Added miscelaneous pane support.
+   V1.0.2    : 18/09/1999 - Update - Added networks support.
+   V1.0.1    : 11/09/1999 - Update - Added Printers and Shortcuts support.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL stdhandlers_HelpHandler(event_pollblock *poll_block, void *reference)
+{
+  message_block message;
+  char          msgsString[14];
+#ifdef BUILD_MDSETUP
+  char          conPrefix[5];
+#endif
+
+
+  db->fn_begin();
+
+  message.header.size    = sizeof(message_block);
+  message.header.sender  = NULL;
+  message.header.myref   = poll_block->data.message.header.yourref;
+  message.header.yourref = poll_block->data.message.header.myref;
+  message.header.action  = message_HELPREPLY;
+
+  memset(message.data.helpreply.text, 0, 200);
+
+
+  /* Default : Help not available */
+  Msgs_Lookup ("help.nohelp", message.data.helpreply.text, 199);
+
+
+#ifdef BUILD_MDSETUP
+
+
+  /* ********** Main configuration window help ********** */
+  if (poll_block->data.message.data.helprequest.where.window == prefswindow)
+  {
+    sprintf(msgsString, "help.conf%02d", poll_block->data.message.data.helprequest.where.icon);
+    if (Msgs_Lookup (msgsString, message.data.helpreply.text, 199) == FALSE)
+      Msgs_Lookup ("help.conf", message.data.helpreply.text, 199);
+  }
+
+
+  /* ********** Configuration window pane help ********** */
+  if (poll_block->data.message.data.helprequest.where.window == prefspane)
+  {
+    switch(currentPane)
+    {
+      case iconbar:   strcpy(conPrefix, "icon");  break;
+      case misc:      strcpy(conPrefix, "misc");  break;
+      case filecore:  strcpy(conPrefix, "file");  break;
+      case image:     strcpy(conPrefix, "imag");  break;
+      case cdfs:      strcpy(conPrefix, "cdfs");  break;
+      case psion:     strcpy(conPrefix, "psio");  break;
+      case printer:   strcpy(conPrefix, "prnt");  break;
+      case shortcut:  strcpy(conPrefix, "shct");  break;
+      case network:   strcpy(conPrefix, "netw");  break;
+      case filters:   strcpy(conPrefix, "filt");  break;
+      case toolbar:   strcpy(conPrefix, "tool");  break;
+      case memoriser:
+      case trashcan:
+      case smartsave: strcpy(conPrefix, "ssav");  break;
+      default:        strcpy(conPrefix, "conf");  break;
+    }
+    sprintf(msgsString, "help.%s%02d", conPrefix,
+            poll_block->data.message.data.helprequest.where.icon);
+    if (Msgs_Lookup (msgsString, message.data.helpreply.text, 199) == FALSE)
+    {
+      sprintf(msgsString, "help.%s", conPrefix);
+      Msgs_Lookup (msgsString, message.data.helpreply.text, 199);
+    }
+  }
+
+
+  /* ********** Configuration pane sub-pane (psion config) help ********** */
+  if (poll_block->data.message.data.helprequest.where.window == prefsp2)
+  {
+    switch(currentPane)
+    {
+      case psion:     strcpy(conPrefix, "psir"); break;  /* 'psif' for PsiFS */
+      case filters:   strcpy(conPrefix, "flts"); break;  /* 'fltu' for user filters */
+      case smartsave: strcpy(conPrefix, "ssap"); break;
+      default:        strcpy(conPrefix, "conf"); break;
+    }
+    sprintf(msgsString, "help.%s%02d", conPrefix,
+            poll_block->data.message.data.helprequest.where.icon);
+
+    if (Msgs_Lookup (msgsString, message.data.helpreply.text, 199) == FALSE)
+    {
+      sprintf(msgsString, "help.%s", conPrefix);
+      Msgs_Lookup (msgsString, message.data.helpreply.text, 199);
+    }
+  }
+
+
+#endif
+
+
+#ifdef BUILD_SCBUILDER
+
+
+  /* ********** Shortcuts builder : Builder window ********** */
+  if (poll_block->data.message.data.helprequest.where.window == scwin_main)
+    Msgs_Lookup ("help.sbwindow", message.data.helpreply.text, 199);
+
+
+  /* ********** Shortcuts builder : Buttons pane ********** */
+  if (poll_block->data.message.data.helprequest.where.window == scwin_pane)
+  {
+    sprintf(msgsString, "help.sbwin%02d", poll_block->data.message.data.helprequest.where.icon);
+    if (Msgs_Lookup (msgsString, message.data.helpreply.text, 199) == FALSE)
+      Msgs_Lookup ("help.sbwin", message.data.helpreply.text, 199);
+  }
+
+
+#endif
+
+
+#ifdef BUILD_MINIDISC
+
+
+  /* ********** Program 'About' dialog ********** */
+  if (poll_block->data.message.data.helprequest.where.window == proginfo)
+  {
+    sprintf(msgsString, "help.info%02d", poll_block->data.message.data.helprequest.where.icon);
+    if (Msgs_Lookup (msgsString, message.data.helpreply.text, 199) == FALSE)
+      Msgs_Lookup ("help.info",  message.data.helpreply.text, 199);
+  }
+
+
+  /* ********** Iconbar icon help ********** */
+  if (poll_block->data.message.data.helprequest.where.window == window_ICONBAR)
+    Msgs_Lookup ("help.iconbar", message.data.helpreply.text, 199);
+
+
+#endif
+
+
+  Wimp_SendMessage (event_SEND, &message, poll_block->data.message.header.sender, NULL);
+
+  UNUSED(reference);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : stdhandlers_Initialise
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 17/10/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+extern void stdhandlers_Initialise(void)
+{
+  db->fn_begin();
+
+  db->trace       (100, "Initialising generic event / message handliers.");
+
+  Event_Claim     (event_OPEN,  event_ANY, event_ANY, stdhandlers_Open_Window,   NULL);
+  Event_Claim	  (event_CLOSE, event_ANY, event_ANY, stdhandlers_Close_Window,  NULL);
+  EventMsg_Claim  (message_MODECHANGE,     event_ANY, stdhandlers_Mode_Change,   NULL);
+  EventMsg_Claim  (message_HELPREQUEST,    event_ANY, stdhandlers_HelpHandler,   NULL);
+
+  Window_AutoHelp (event_ANY, event_ANY);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: stdhandlers.cpp,v $
+   Revision 1.2  2003/10/05 16:01:05  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

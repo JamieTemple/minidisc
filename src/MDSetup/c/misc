@@ -1,0 +1,187 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/misc.c                                                   *
+ * Purpose   : 'Misc' configuration pane maintenance routines.                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/misc.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+static menu_ptr  autoBootMenu = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_Misc                                                     *
+ * Purpose   : Populate the 'Miscelaneous' options pane.                       *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 26/08/2001 - Update - Added shading code for QuickBoot.         *
+ * V1.0.0    : 07/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_Misc(void)
+{
+  char msgTag[12];
+
+
+  sprintf(msgTag, "conf.boot%02d", tempCfg.misc.bootApps);
+  if (Msgs_Lookup (msgTag, Icon_GetTextPtr(prefspane, OW_msc_PROCESS), 32) == FALSE)
+    Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_msc_PROCESS), 32);
+
+  Icon_SetSelect(prefspane, OW_msc_QUICKP,  !tempCfg.misc.quickBoot);
+  Icon_SetSelect(prefspane, OW_msc_DRIVESO, !tempCfg.misc.discsOnly);
+  Icon_SetSelect(prefspane, OW_msc_HIDECTR, !tempCfg.misc.hideControl);
+  Icon_SetSelect(prefspane, OW_msc_SPLASH,  !tempCfg.misc.noSplash);
+  Icon_SetSelect(prefspane, OW_msc_INAPPS,  !tempCfg.misc.allowInApps);
+  Icon_SetSelect(prefspane, OW_msc_NOPLING, !tempCfg.misc.hidePling);
+  Icon_SetSelect(prefspane, OW_msc_SCANDEV, !tempCfg.misc.scanDevices);
+  Icon_SetSelect(prefspane, OW_msc_RAMCFRM, !tempCfg.misc.ramConfirm);
+  Icon_SetSelect(prefspane, OW_msc_USEICON, !tempCfg.misc.useCustom);
+
+  Icon_SetShade (prefspane, OW_msc_NOPLING, !tempCfg.misc.allowInApps);
+  Icon_SetShade (prefspane, OW_msc_QUICKP,   tempCfg.misc.bootApps == 1 ? 1 : 0);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_Misc                                                    *
+ * Purpose   : Record options from 'Misc' pane before closing.                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 07/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_Misc (void)
+{
+  tempCfg.misc.discsOnly    = !Icon_GetSelect(prefspane, OW_msc_DRIVESO);
+  tempCfg.misc.hideControl  = !Icon_GetSelect(prefspane, OW_msc_HIDECTR);
+  tempCfg.misc.quickBoot    = !Icon_GetSelect(prefspane, OW_msc_QUICKP);
+  tempCfg.misc.noSplash     = !Icon_GetSelect(prefspane, OW_msc_SPLASH);
+  tempCfg.misc.allowInApps  = !Icon_GetSelect(prefspane, OW_msc_INAPPS);
+  tempCfg.misc.hidePling    = !Icon_GetSelect(prefspane, OW_msc_NOPLING);
+  tempCfg.misc.scanDevices  = !Icon_GetSelect(prefspane, OW_msc_SCANDEV);
+  tempCfg.misc.ramConfirm   = !Icon_GetSelect(prefspane, OW_msc_RAMCFRM);
+  tempCfg.misc.useCustom    = !Icon_GetSelect(prefspane, OW_msc_USEICON);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OPMenu_Misc_boot                                                *
+ * Purpose   : Process clicks in the 'Auto-Boot' configuration menu.           *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 26/08/2001 - Update - Added shading code for QuickBoot.         *
+ * V1.0.3    : 07/01/2000 - Update - Meved into 'Misc' source file.            *
+ * V1.0.2    : 05/12/1999 - Update - Params now send menu pointer.             *
+ * V1.0.1    : 28/11/1999 - Update - Resized static arrays to sensible sizes.  *
+ * V1.0.0    : 14/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OPMenu_Misc_boot (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  char         msgTag[12],
+               iconText[20];
+
+
+  if (tempCfg.misc.bootApps != event->data.selection[0])  /* Option changed ? */
+  {
+    tempCfg.misc.bootApps = event->data.selection[0];
+    sprintf(msgTag, "conf.boot%02d", tempCfg.misc.bootApps);
+    if (Msgs_Lookup (msgTag,        iconText, 21) == FALSE)
+        Msgs_Lookup ("err.unknown", iconText, 21);
+    Icon_SetText (prefspane, OW_msc_PROCESS, iconText);
+  }
+
+  Icon_SetShade(prefspane, OW_msc_QUICKP, tempCfg.misc.bootApps == 1 ? 1 : 0);
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust)
+  {
+    Menu_SetFlags (menu, 0, tempCfg.misc.bootApps == 0 ? 1 : 0, 0);
+    Menu_SetFlags (menu, 1, tempCfg.misc.bootApps == 1 ? 1 : 0, 0);
+    Menu_SetFlags (menu, 2, tempCfg.misc.bootApps == 2 ? 1 : 0, 0);
+    Menu_ShowLast ();
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_ClickMisc                                            *
+ * Purpose   : Process clicks upon buttons in the 'Misc' options pane.         *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_ClickMisc (event_pollblock *event, void *reference)
+{
+  db_fn_begin();
+
+  if (event->data.mouse.window == prefspane)
+  {
+    switch (event->data.mouse.icon)
+    {
+      case OW_msc_BOOT:
+        if (autoBootMenu == NULL)
+        {
+          autoBootMenu = Msgs_MenuNew("conf.boott", "conf.boot");
+
+          Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                       (void *)(0 | ((int)autoBootMenu << 4)));
+        }
+        Menu_SetFlags (autoBootMenu, tempCfg.misc.bootApps, 1, 0);
+
+        Menu_PopUp    (autoBootMenu, prefspane, OW_msc_BOOT);
+        break;
+
+/*
+
+     Note: Now that the startup and exit scripts are standard, this code is no longer
+           used.  However, it is a useful example of how to send an obey file to a
+           text editor, so I'm leaving this code where it is for now.  (03/11/2001)
+
+      case OW_msc_STARTED:
+      case OW_msc_QUITED:
+        message.header.size            = 256;
+        message.header.sender          = d->task;
+        message.header.myref           = 0;
+        message.header.yourref         = 0;
+        message.header.action          = message_DATAOPEN;
+        message.data.dataload.window   = -1;
+        message.data.dataload.icon     = 0;
+        message.data.dataload.pos.x    = 0;
+        message.data.dataload.pos.y    = 0;
+        message.data.dataload.size     = 0;
+        message.data.dataload.filetype = 0x00000fff;
+        if (event->data.mouse.icon == OW_msc_STARTED)
+              strcpy(message.data.dataload.filename, tempCfg.misc.onStartup);
+        else  strcpy(message.data.dataload.filename, tempCfg.misc.onExit);
+        Wimp_SendMessage(event_USERMESSAGERECORDED, &message, 0, 0);
+        break;
+*/
+
+      case OW_msc_INAPPS:
+        Icon_SetShade (prefspane, OW_msc_NOPLING, Icon_GetSelect(prefspane, OW_msc_INAPPS));
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+

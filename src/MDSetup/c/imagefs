@@ -1,0 +1,55 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/imagefs.c                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/imagefs.h"
+
+#include "DeskLib:Icon.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_ImageFS                                                  *
+ * Purpose   : Populate the 'Image' filing systems options pane.               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_ImageFS(void)
+{
+  Icon_SetSelect(prefspane, OW_ifs_RESINC, !tempCfg.image.resFSinMenu);
+  Icon_SetSelect(prefspane, OW_ifs_RESINT, !tempCfg.image.resFSinTbar);
+  Icon_SetSelect(prefspane, OW_ifs_RESNOI, !tempCfg.image.resFSremoveIcon);
+  Icon_SetSelect(prefspane, OW_ifs_RESAPP, !tempCfg.image.resFSopenApps);
+  Icon_SetSelect(prefspane, OW_ifs_MEMINC, !tempCfg.image.memFSinMenu);
+  Icon_SetSelect(prefspane, OW_ifs_MEMINT, !tempCfg.image.memFSinTbar);
+  Icon_SetSelect(prefspane, OW_ifs_MEMNOI, !tempCfg.image.memFSremoveIcon);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_ImageFS                                                 *
+ * Purpose   : Record options from the ImageFS pane before closing.            *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_ImageFS (void)
+{
+  tempCfg.image.resFSinMenu     = !Icon_GetSelect(prefspane, OW_ifs_RESINC);
+  tempCfg.image.resFSinTbar     = !Icon_GetSelect(prefspane, OW_ifs_RESINT);
+  tempCfg.image.resFSremoveIcon = !Icon_GetSelect(prefspane, OW_ifs_RESNOI);
+  tempCfg.image.resFSopenApps   = !Icon_GetSelect(prefspane, OW_ifs_RESAPP);
+  tempCfg.image.memFSinMenu     = !Icon_GetSelect(prefspane, OW_ifs_MEMINC);
+  tempCfg.image.memFSinTbar     = !Icon_GetSelect(prefspane, OW_ifs_MEMINT);
+  tempCfg.image.memFSremoveIcon = !Icon_GetSelect(prefspane, OW_ifs_MEMNOI);
+}
+
+

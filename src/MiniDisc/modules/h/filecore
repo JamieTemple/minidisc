@@ -1,0 +1,53 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : /modules/filecore.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_FILECORE
+#define MDH_FILECORE
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Global Variables                                                            *
+ * --------------------------------------------------------------------------- */
+extern bool  controlMenuOpen;
+extern char  TB__DiscName[27];
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  FileCore_OpenRoot        (char *fsn,      int drive, char *desc);
+void  FileCore_Dismount        (char *fsn_desc, int drivenum);
+void  FileCore_ShowFree        (char *fsn_desc, int drivenum);
+void  FileCore_RenameDisc      (char *fsn_desc, int drivenum, char *newName);
+void  FileCore_MenuHideRestore (char *fsn_desc, int drivenum, void *event, int menuPos);
+void  FileCore_BuildNameDisc   (char *fsn_desc, int drivenum, void *event);
+void  FileCore_Actions         (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+void  FileCore_AppRun          (char *fsn_desc, int drivenum, int verify);
+void *FileCore_ListDrives      (char *device_name, int hard, int floppy, void *mainmenu);
+void  FileCore_ClickGeneric    (MenuEventType mevent, char *fsn_desc, int drivenum, void *event,
+                                void (*controlMenuProc)(void *event, char *fsn_desc, int drivenum));
+void  FileCore_FollowGeneric   (MenuEventType mevent, char *fsn_desc, char *controlMenuText,
+                                int drivenum, void *event, void (*controlMenuProc)(void *event,
+                                char *fsn_desc, int drivenum));
+void  FileCore_AddTBIcons      (void);
+void  FileCore_AddTBIcon       (char *spriteName, char *bigSprite, char *infoText, char *fsn,
+                                int device);
+
+void  FileCore_TBDataLoad      (void *event);
+void  FileCore_TBDataSave      (void *event);
+void *FileCore_MenuExtend      (void *mainmenu, char *discName, char *spriteName, char *fsn,
+                                int device);
+void  FileCore_Share           (char *fsn_desc, int drivenum);
+
+
+#endif

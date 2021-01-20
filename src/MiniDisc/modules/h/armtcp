@@ -1,0 +1,26 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : /modules/armtcp.h                                               *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_ARMTCP
+#define MDH_ARMTCP
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  ArmTCP_Actions       (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+extern void *ArmTCP_BuildMainMenu (void *mainmenu);
+extern void  ArmTCP_AddTBIcons    (void);
+
+
+#endif

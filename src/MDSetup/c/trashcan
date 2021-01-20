@@ -1,0 +1,55 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : mdsetup/trashcan.c                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/trashcan.h"
+
+#include "MDSetup/main.h"
+
+/* #include "DeskLib:Icon.h" */
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_TrashCan                                                 *
+ * Purpose   : Populate the 'TrashCan' options pane.                           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_TrashCan(void)
+{
+/*
+  Icon_SetSelect(prefspane, OW_fil_INMENU,  !tempCfg.filecore.inMenu);
+  Icon_SetSelect(prefspane, OW_fil_INTBAR,  !tempCfg.filecore.inTbar);
+  Icon_SetSelect(prefspane, OW_fil_NOICONS, !tempCfg.filecore.removeIcons);
+  Icon_SetSelect(prefspane, OW_fil_GREYOUT, !tempCfg.filecore.greyEmpty);
+  Icon_SetSelect(prefspane, OW_fil_HIDEIDE, !tempCfg.filecore.hideIDEFS);
+  Icon_SetSelect(prefspane, OW_fil_NOPUB,   !tempCfg.filecore.ignorePublic);
+*/
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_TrashCan                                                *
+ * Purpose   : Record options from the trashcan pane before closing.           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_TrashCan (void)
+{
+/*
+  tempCfg.filecore.inMenu       = !Icon_GetSelect(prefspane, OW_fil_INMENU);
+  tempCfg.filecore.inTbar       = !Icon_GetSelect(prefspane, OW_fil_INTBAR);
+  tempCfg.filecore.removeIcons  = !Icon_GetSelect(prefspane, OW_fil_NOICONS);
+  tempCfg.filecore.greyEmpty    = !Icon_GetSelect(prefspane, OW_fil_GREYOUT);
+  tempCfg.filecore.hideIDEFS    = !Icon_GetSelect(prefspane, OW_fil_HIDEIDE);
+  tempCfg.filecore.ignorePublic = !Icon_GetSelect(prefspane, OW_fil_NOPUB);
+*/
+}

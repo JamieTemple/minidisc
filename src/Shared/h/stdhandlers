@@ -1,0 +1,72 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/stdhandlers.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:01:06 $
+
+   Generic event / message handling code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef __SHARED_STDHANDLERS_H
+#define __SHARED_STDHANDLERS_H
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Enumerated types
+--------------------------------------------------------------------------------
+*/
+
+// These are the valid responses returned from a queryDialog.
+typedef enum
+{
+  qdResult_Unknown = -1,
+  qdResult_OK      =  1,
+  qdResult_Cancel  =  2,
+  qdResult_Extra   =  3
+} qdResult;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void      stdhandlers_Initialise (void);
+extern qdResult  queryDialog            (char *, char *, char *, char *);
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: stdhandlers.h,v $
+   Revision 1.2  2003/10/05 16:01:06  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

@@ -1,0 +1,457 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/menu.cpp,v $
+
+   $Revision: 1.4 $
+   $Date: 2003/10/05 16:00:09 $
+
+   Main menu management code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/ModHdr.h"
+#include "minidisc/core/module.h"
+#include "minidisc/core/taskslice.h"
+#include "minidisc/core/shortcuts.h"
+
+#include "DeskLib:Menu.h"
+#include "DeskLib:Url.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables
+--------------------------------------------------------------------------------
+*/
+menu_ptr  mainmenu;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuDump
+   Purpose   : Dispose of a menu (and indirected buffers).
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 10/02/2001 - Update - Now able to be used by OSLib code.
+   V1.0.0    : 18/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MenuDump(void *menu)
+{
+  menu_item *anItem;
+  menu_ptr   menuPtr = (menu_ptr) menu;
+  int        i;
+
+
+  db->fn_begin();
+
+  for (i = 0;; i++)
+  {
+    anItem = MenuGet_Item(menuPtr, i);
+
+    // NOTE: THIS NEXT LINE IS OFFENSIVELY PRE-WIMP 3.98 UNFRIENDLY!!!!!
+    if ((anItem->submenu.value & 0x01) == 0 && anItem->submenu.value > 0)
+      MenuDump(anItem->submenu.menu);  // Recursively dispose of attached submenus.
+
+    if (anItem->menuflags.data.last) break;
+  }
+
+  if (MenuGet_Item(menuPtr, 0)->menuflags.data.indtitle)
+    db->tracef (5, "Dumping menu %s...", ((icon_data *) menuPtr->title)->indirecttext.buffer);
+  else
+    db->tracef (5, "Dumping menu %s...", menuPtr->title);
+
+  Menu_FullDispose(menuPtr);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuDump_SubMenu
+   Purpose   : Dump any attached dynamic submenu before we generate a new one.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 21/07/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MenuDump_SubMenu(event_pollblock *event)
+{
+  void *aSubMenuPtr;
+
+
+  db->fn_begin();
+
+  aSubMenuPtr = MenuGet_SubMenuAddress (event);             // Locate sub-menu pointer address
+
+  if (*(int *)aSubMenuPtr > 1)                              // If pointer is valid, then...
+    MenuDump((void *)(*(int *)aSubMenuPtr));                // Dispose of attached menu, then...
+
+  *(int *)aSubMenuPtr = 1;                                  // flag pointer as invalid.
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuUpdate_Item
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 23/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MenuUpdate_Item (void *event, int entry, char *newText)
+{
+  menu_ptr   subMenu   = mainmenu;
+/*
+  int       *selection = eventType == 0 ?
+                          ((event_pollblock *)event)->data.selection :
+                          ((event_pollblock *)event)->data.message.data.menuwarn.selection;
+*/
+  int       *selection = ((event_pollblock *)event)->data.selection;
+  menu_item *menuItem;
+  char      *returnString;
+  int        i;
+
+
+  db->fn_begin();
+
+  for (i = 0; selection[i] != -1; i++)
+  {
+    menuItem = MenuGet_Item(subMenu, selection[i]);
+
+    if (selection[i+1] == -1)
+    {
+      returnString = menuItem->iconflags.data.indirected ?
+                     menuItem->icondata.indirecttext.buffer :
+                     menuItem->icondata.text;
+      strcpy(returnString, newText);
+      break;  /* Drop out of 'for' loop */
+    }
+
+    subMenu  = menuItem->submenu.menu;
+  }
+
+  UNUSED(entry);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuRuleOff
+   Purpose   : Draw a line underneath a specified menu entry.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 04/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void MenuRuleOff(void *aMenu, int index)
+{
+  db->fn_begin();
+
+  MenuGet_Item(aMenu, index)->menuflags.data.dotted = 1;
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuGet_TextAtLevel
+   Purpose   : Return a pointer to the text held at a specific submenu level.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : eventType = 0 -> Click, otherwise -> menu followed.
+               If level == NULL, then the lowest submenu entry is returned.
+--------------------------------------------------------------------------------
+*/
+char *MenuGet_TextAtLevel(void *event, int level, int eventType)
+{
+  menu_ptr   subMenu   = mainmenu;
+  int       *selection = eventType == 0 ?
+                          ((event_pollblock *)event)->data.selection :
+                          ((event_pollblock *)event)->data.message.data.menuwarn.selection;
+  menu_item *menuItem;
+  char      *returnString = NULL;
+  int        i;
+
+
+  db->fn_begin();
+
+  for (i = 0; selection[i] != -1; i++)
+  {
+    menuItem = MenuGet_Item(subMenu, selection[i]);
+
+/*  if ((i == level && level != NULL) || (level == NULL && selection[i] == -1)) */
+    if ((i == level) || (level == NULL && selection[i+1] == -1))
+    {
+      returnString = menuItem->iconflags.data.indirected ?
+                     menuItem->icondata.indirecttext.buffer :
+                     menuItem->icondata.text;
+      break;  /* Drop out of 'for' loop */
+    }
+
+    subMenu  = menuItem->submenu.menu;
+  }
+
+  db->fn_end();
+
+
+  return returnString;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuGet_SubMenuValue
+   Purpose   : Return the menu index value at a specific menu level
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int MenuGet_SubMenuValue(void *event, int level)
+{
+  return (((event_pollblock *)event)->type == event_MENU) ?
+          ((event_pollblock *)event)->data.selection[level] :
+          ((event_pollblock *)event)->data.message.data.menuwarn.selection[level];
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuGet_SubMenuLevel
+   Purpose   : Return the menu depth level of the last MenuWarning or mouse
+               click event recieved.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int MenuGet_SubMenuLevel(void *event)
+{
+  int i;
+
+
+  db->fn_begin();
+
+  for (i = 0;
+       (((event_pollblock *)event)->type == event_MENU) ?
+        ((event_pollblock *)event)->data.selection[i] != -1 :
+        ((event_pollblock *)event)->data.message.data.menuwarn.selection[i] != -1;
+       i++);
+
+  db->fn_end();
+
+
+  return i - 1;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_SetFlags
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 15/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *MenuGet_SubMenuAddress(void *event)
+{
+  menu_item *menuItem;
+
+
+  db->fn_begin();
+
+  menuItem = MenuGet_Item((menu_ptr)d->currentMenu.menuptr, ((event_pollblock *)event)->data.message.data.menuwarn.selection[0]);
+
+  db->fn_end();
+
+
+  return &(menuItem->submenu.value);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuCreate_Sub
+   Purpose   : Create a submenu from a description, then attach it to a parent.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/05/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *MenuCreate_Sub (char *title, char *menuText, void *event)
+{
+  menu_ptr   subMenu  = mainmenu;
+  menu_item *menuItem = NULL;
+  int        i;
+
+
+  db->fn_begin();
+
+  for (i = 0; ((event_pollblock *)event)->data.message.data.menuwarn.selection[i] != -1; i++)
+  {
+    menuItem = MenuGet_Item(subMenu,
+                            ((event_pollblock *)event)->data.message.data.menuwarn.selection[i]);
+    subMenu  = menuItem->submenu.menu;
+  }
+
+  /* Create the submenu, attach it to the current menu */
+  subMenu                = Menu_New(title, menuText);
+  menuItem->submenu.menu = subMenu;
+
+  db->fn_end();
+
+
+  return (void *)subMenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuCreate_SubMenu
+   Purpose   : Display a submenu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/05/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *MenuCreate_SubMenu (void *aMenu, void *event)
+{
+  db->fn_begin();
+
+  Wimp_CreateSubMenu((menu_ptr)aMenu,
+                     ((event_pollblock *)event)->data.message.data.menuwarn.openpos.x,
+                     ((event_pollblock *)event)->data.message.data.menuwarn.openpos.y);
+
+  db->fn_end();
+
+
+  return (void *)aMenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuAttach_WritableSub
+   Purpose   : Attach a writeable submenu where we've just been sent a WIMP
+               message from.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : Also used by the 'MenuAttach_Sub' macro with buffSize set to 0
+               to attach non-writable submenus.
+--------------------------------------------------------------------------------
+*/
+void *MenuAttach_WritableSub(char *title, char *menuText, int buffSize, void *event)
+{
+  menu_ptr   subMenu  = mainmenu;
+  menu_item *menuItem = NULL;
+  int        i;
+
+
+  db->fn_begin();
+
+  for (i = 0; ((event_pollblock *)event)->data.message.data.menuwarn.selection[i] != -1; i++)
+  {
+    menuItem = MenuGet_Item(subMenu,
+                            ((event_pollblock *)event)->data.message.data.menuwarn.selection[i]);
+    subMenu  = menuItem->submenu.menu;
+  }
+
+  /* Create the submenu, attach it to the current menu */
+  subMenu                = Menu_New(title, menuText);
+  menuItem->submenu.menu = subMenu;
+
+  if (buffSize > 0)  /* Writable menu? */
+  {
+    /* Create the submenu writeable entry */
+    menuItem                                = MenuGet_Item((menu_ptr)subMenu, 0);
+    menuItem->icondata.indirecttext.bufflen = buffSize + 1;
+
+    /* Allocate and fill an indirect text buffer */
+    menuItem->icondata.indirecttext.buffer = malloc(buffSize + 1);
+    strncpy(menuItem->icondata.indirecttext.buffer, menuText, buffSize + 1);
+
+    /* Allocate and fill a text validation field */
+    menuItem->icondata.indirecttext.validstring = malloc(8);
+    strcpy(menuItem->icondata.indirecttext.validstring, "A0-9 -z");
+
+    /* Set some menu item flags */
+    menuItem->iconflags.value           = 0x0700f111;
+    menuItem->menuflags.data.writable   = 1;
+  }
+
+  subMenu = (menu_ptr)MenuCreate_SubMenu (subMenu, event);
+
+  db->fn_end();
+
+
+  return (void *)subMenu;
+}
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: menu.cpp,v $
+   Revision 1.4  2003/10/05 16:00:09  jtemple
+   General check-in for release testing.
+
+   Revision 1.3  2003/09/14 00:54:19  jtemple
+   Replaced Mem_ functions with malloc/free.
+   MenuDump now uses DeskLib functions.
+
+   Revision 1.2  2003/08/29 20:09:03  jtemple
+   code & comments tidied.  Enhanced debugging code calls.
+
+
+--------------------------------------------------------------------------------
+*/
+

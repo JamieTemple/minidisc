@@ -1,0 +1,34 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : resfs.h                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * ---------------------------------------------------------------------------
+extern proc_info proceduresInfo[MaxMenuSize];
+extern int       DriveMenuSize; */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Procedures                                                         *
+ * --------------------------------------------------------------------------- */
+/* menu.c
+extern void  MenuBuild_DriveMenu  (void *event, int shortcut);
+extern int   MenuGet_SubMenuLevel (void *event);
+extern void  MenuFilerRun         (void *event, int shortcut); */
+
+/* filecore.c
+extern void  FileCore_Actions     (MenuEventType mevent, char *fsn_desc, int drivenum); */
+
+/* Desklib:Msgs.h
+extern void  Msgs_Lookup          (char *tag, char *result, int maxlength); */
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void *RESFS_ListDrives (void *mainmenu);
+void  RESFS_AddTBIcons (void);

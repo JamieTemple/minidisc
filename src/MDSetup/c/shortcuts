@@ -1,0 +1,223 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/shortcuts.c                                              *
+ * Purpose   : Shortcuts configuration pane hanling.                           *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/shortcuts.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+static menu_ptr  shortcutsMenuPosMenu  = NULL;
+static menu_ptr  pinboardShortcutsMenu = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_ClickShortcut                                        *
+ * Purpose   : Process clicks upon buttons in the Shortcuts options pane.      *
+ * Status    : Implementation (V1.1.1)                                         *
+ * V1.1.1    : 05/12/1999 - Update - No longer uses message passing structure. *
+ * V1.1.0    : 31/10/1999 - Update - Split out shortcuts editing handlers.     *
+ * V1.0.1    : 03/10/1999 - Update - Now supports the additional panes.        *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_ClickShortcut (event_pollblock *event, void *reference)
+{
+  char  menuTitle[20];
+  int   i;
+
+
+  db_fn_begin();
+
+  if (event->data.mouse.window == prefspane)
+  {
+    switch(event->data.mouse.icon)
+    {
+      case OW_shc_INCLUDE:
+        Icon_SetShade(prefspane, OW_shc_MENPOSM, !Icon_GetSelect(prefspane, OW_shc_INCLUDE));
+        Icon_SetShade(prefspane, OW_shc_MENPOSD, !Icon_GetSelect(prefspane, OW_shc_INCLUDE));
+        Icon_SetShade(prefspane, OW_shc_MENPOSL, !Icon_GetSelect(prefspane, OW_shc_INCLUDE));
+        break;
+
+      case OW_shc_MENPOSM:
+        if (shortcutsMenuPosMenu == NULL)
+        {
+          shortcutsMenuPosMenu = Msgs_MenuNew("conf.shctt", "conf.shct");
+
+          Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                      (void *)(5 | ((int)shortcutsMenuPosMenu << 4)));
+        }
+        Menu_SetFlags (shortcutsMenuPosMenu, tempCfg.shortcut.menuPos, 1, 0);
+        Menu_PopUp    (shortcutsMenuPosMenu, prefspane, OW_shc_MENPOSM);
+        break;
+
+      case OW_shc_EDITSHC:
+        Wimp_StartTask("Filer_Run <MiniDisc$Dir>.!SCSetup");
+        break;
+
+      case OW_shc_SHOWMNM:
+        if (pinboardShortcutsMenu == NULL)  // build menu of existing shortcuts menus
+        {
+          for (i = 0; i < maximumNumberOfShortcuts; i++)
+          {
+            if (shortcutsArray[i].menuName[0] != 0)
+            {
+              if (pinboardShortcutsMenu == NULL)
+              {
+                Msgs_Lookup ("conf.actn05", menuTitle, 19);
+                pinboardShortcutsMenu = Menu_New(menuTitle, shortcutsArray[i].menuName);
+              }
+              else
+                pinboardShortcutsMenu = Menu_Extend(pinboardShortcutsMenu,shortcutsArray[i].menuName);
+            }
+          }
+          // Attach an event handler
+          Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                      (void *)(12 | ((int)pinboardShortcutsMenu << 4)));
+        }
+        Menu_PopUp (pinboardShortcutsMenu, prefspane, OW_shc_SHOWMNM);  // Display the menu
+        break;
+
+      case OW_shc_PINBORD:
+        Icon_SetShade(prefspane, OW_shc_SHOWMNM, !Icon_GetSelect(prefspane, OW_shc_PINBORD));
+        Icon_SetShade(prefspane, OW_shc_SHOWMND, !Icon_GetSelect(prefspane, OW_shc_PINBORD));
+        Icon_SetShade(prefspane, OW_shc_SHOWMNL, !Icon_GetSelect(prefspane, OW_shc_PINBORD));
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_Shortcut                                                 *
+ * Purpose   : Populate the 'Shortcuts' options pane.                          *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 28/11/1999 - Update - Tidied use of static arrays.              *
+ * V1.0.0    : 24/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_Shortcut(void)
+{
+  char  msgTag[12];
+
+
+  sprintf(msgTag, "conf.shct%02d", tempCfg.shortcut.menuPos);
+  if (Msgs_Lookup (msgTag, Icon_GetTextPtr(prefspane, OW_shc_MENPOSD), 21) == FALSE)
+    Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_shc_MENPOSD), 21);
+
+  Icon_SetSelect(prefspane, OW_shc_INCLUDE, !tempCfg.shortcut.inMenu);
+  Icon_SetSelect(prefspane, OW_shc_QUKDRAG, !tempCfg.shortcut.quickDrag);
+  Icon_SetSelect(prefspane, OW_shc_PINBORD, !tempCfg.shortcut.catchPinClicks);
+
+  Icon_SetShade (prefspane, OW_shc_MENPOSM,  tempCfg.shortcut.inMenu);
+  Icon_SetShade (prefspane, OW_shc_MENPOSD,  tempCfg.shortcut.inMenu);
+  Icon_SetShade (prefspane, OW_shc_MENPOSL,  tempCfg.shortcut.inMenu);
+
+  Icon_SetShade (prefspane, OW_shc_SHOWMNM,  tempCfg.shortcut.catchPinClicks);
+  Icon_SetShade (prefspane, OW_shc_SHOWMND,  tempCfg.shortcut.catchPinClicks);
+
+  strcpy(Icon_GetTextPtr(prefspane, OW_shc_SHOWMND), tempCfg.shortcut.shortcutMenu);
+  Icon_ForceWindowRedraw(prefspane, OW_shc_SHOWMND);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_Shortcut                                                *
+ * Purpose   : Record options from the Shortcuts pane before closing.          *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 24/11/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_Shortcut(void)
+{
+  tempCfg.shortcut.inMenu         = !Icon_GetSelect(prefspane, OW_shc_INCLUDE);
+  tempCfg.shortcut.quickDrag      = !Icon_GetSelect(prefspane, OW_shc_QUKDRAG);
+  tempCfg.shortcut.catchPinClicks = !Icon_GetSelect(prefspane, OW_shc_PINBORD);
+  reAssignText (OW_shc_SHOWMND, tempCfg.shortcut.shortcutMenu);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_MenuShortcutsPos                                     *
+ * Purpose   : Process clicks in the 'Shortcuts' configuration menu.           *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 05/12/1999 - Bogfix - Now redraws icon after update.            *
+ * V1.0.1    : 28/11/1999 - Update - Tidied use of static arrays.              *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_MenuShortcutsPos (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  char         msgTag[12];
+
+
+  if (tempCfg.shortcut.menuPos != event->data.selection[0])
+  {
+    tempCfg.shortcut.menuPos = event->data.selection[0];
+
+    sprintf(msgTag, "conf.shct%02d", tempCfg.shortcut.menuPos);
+    if (Msgs_Lookup (msgTag,        Icon_GetTextPtr(prefspane, OW_shc_MENPOSD), 21) == FALSE)
+        Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_shc_MENPOSD), 21);
+    Icon_ForceWindowRedraw(prefspane, OW_shc_MENPOSD);
+  }
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_SetFlags (menu, 0, tempCfg.shortcut.menuPos == 0 ? 1 : 0, 0);
+    Menu_SetFlags (menu, 1, tempCfg.shortcut.menuPos == 1 ? 1 : 0, 0);
+    Menu_ShowLast ();
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OptionPane_MenuShortcutsPinMenu                                 *
+ * Purpose   : .                                                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 16/05/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL OptionPane_MenuShortcutsPinMenu (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+
+
+  strcpy(Icon_GetTextPtr(prefspane, OW_shc_SHOWMND),
+         shortcutsArray[event->data.selection[0]].menuName);
+
+  Icon_ForceWindowRedraw(prefspane, OW_shc_SHOWMND);
+
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+    return TRUE;
+  }
+  else
+    return FALSE;
+}

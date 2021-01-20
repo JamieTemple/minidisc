@@ -1,0 +1,75 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : psion.c                                                         *
+ * Purpose   : Psion specific code.                                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/psion.h"
+#include "MiniDisc/modules/psiriscfs.h"
+#include "MiniDisc/modules/psifs.h"
+
+#include "shared/global.h"
+
+#include "shared/desklib.h"
+
+#include "MiniDisc/core/toolbar.h"
+#include "MiniDisc/core/ibmenu.h"
+#include "MiniDisc/core/oslib-menu.h"
+
+#include "oslib/os.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Psion_ListDrives                                                *
+ * Purpose   : Add Psion drives to the main MiniDisc menu.                     *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 04/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *Psion_ListDrives (void *mainMenu)
+{
+  char aBuffer[20];
+
+
+  switch (MDCfg->psion.driver)
+  {
+    case 0:
+      MDTrace(100, "Displaying PsiRiscFS drives in main MD menu");
+      mainMenu = PsiRiscFS_ListDrives (mainMenu);
+      break;
+
+    case 1:
+      MDTrace(100, "Displaying PsiFS drives in main MD menu");
+      mainMenu = PsiFS_ListDrives     (mainMenu);
+      break;
+
+    default:
+      MDTrace(100, "Displaying Unknown Psion drives in main MD menu");
+      DriveMenuSize++;
+      Msgs_Lookup("menu.nodriver", aBuffer, 19);
+      mainMenu = ibMenu_Add (mainMenu, aBuffer, "smd_pda", 0, 1);
+      proceduresInfo[DriveMenuSize].proc_ptr = NULL;
+      break;
+  }
+
+
+  return mainMenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Psion_AddTBIcons                                                *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Psion_AddTBIcons (void)
+{
+  // ToolBar_AddIcon("md_pda", 0, "PsiFS::Connect", NULL);
+}
+
+

@@ -1,0 +1,199 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : printer.c                                                       *
+ * Purpose   : Printer specific code.                                          *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/printer.h"
+
+#include "shared/global.h"
+
+#include "MiniDisc/core/ibmenu.h"
+#include "MiniDisc/core/menu.h"
+#include "MiniDisc/core/toolbar.h"
+
+#include "DeskLib:Msgs.h"
+#include "DeskLib:PDriver.h"
+
+
+typedef struct aPrinter *prtPtr;
+typedef struct aPrinter
+{
+  char   *name;
+  prtPtr  next;
+} prtRecord;
+
+
+int numberOfPrinters;
+
+prtPtr printersListTop = NULL;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Printer_Actions                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Printer_LoadSettings ()
+{
+  char    textBuffer[256];
+  char   *printerName;
+  char   *label;
+  FILE   *aFile;
+  prtPtr  current  = NULL,
+          previous = NULL;
+
+
+  numberOfPrinters = 0;
+
+  aFile = fopen("Printers:Settings", "r");  /* Open file */
+
+  fgets (textBuffer, 255, aFile);         /* Skip intro */
+
+  label       = textBuffer;
+  printerName = textBuffer + 3;
+
+  while (!feof(aFile))
+  {
+    memset(textBuffer, 0, 256);
+    fgets (textBuffer, 255, aFile);
+    textBuffer[2] = 0;
+
+    if (strcmp(label, "cl") == 0)                              /* A new record... */
+    {
+      current = malloc(sizeof(prtRecord));    /* Create a new record */
+      if (printersListTop == NULL)  printersListTop = current; /* Set top of chain 1st time out */
+
+      current->next = NULL;                                    /* Set next pointer as empty */
+      if (previous != NULL)  previous->next = current;         /* Link new node into the chain */
+      previous = current;                                      /* Set last as current */
+    }
+
+    else if (strcmp(label, "nm") == 0)
+    {
+      current->name = malloc(strlen(printerName) + 1);
+      strcpy(current->name, printerName);
+    }
+  }
+
+  fclose(aFile);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Printer_Actions                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Printer_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  char    aNewMenu[260];
+  prtPtr  current = NULL;
+
+
+  switch(mevent)
+  {
+    case click:
+      break;
+
+    case follow:
+      switch (MenuGet_SubMenuLevel(event))
+      {
+        case 0:
+        Msgs_Lookup ("menu.printers", aNewMenu, 260);
+        MenuAttach_Sub(fsn_desc, aNewMenu, event);
+        break;
+
+        case 1:
+          for (current = printersListTop; current != NULL; current = current->next)
+          {
+            if (current == printersListTop)  memset(aNewMenu, 0, 256);
+            else                             strcat(aNewMenu, ",");
+
+            strcat(aNewMenu, current->name);
+          }
+
+          MenuAttach_Sub("Select driver:", aNewMenu, event);
+          break;
+      }
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Printer_ListDrivers                                             *
+ * Purpose   : Add available printer drivers to the main MiniDisc menu.        *
+ * Status    : Development.                                                    *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *Printer_ListDrivers (void *mainmenu)
+{
+/*
+  _kernel_swi_regs  regs;
+  int               driver;
+
+  regs.r[0] = 0;
+  if (_kernel_swi(0x0a0159, &regs, &regs) == NULL)  / * PDriver_EnumerateDrivers * /
+  do
+  {
+    driver = regs.r[0];
+    regs.r[0] = regs.r[1];
+    _kernel_swi(0x0a0158, &regs, &regs);
+    regs.r[0] = driver;
+    if (PDriver_PrinterName() != NULL)
+    {
+      DriveMenuSize++;
+      proceduresInfo[DriveMenuSize].proc_ptr = Printer_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = 0 / *regs.r[1]* /;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, PDriver_PrinterName());
+      mainmenu = MenuExtend(mainmenu, proceduresInfo[DriveMenuSize].fsn_desc, "smd_print");
+    }
+    _kernel_swi(0x0a0159, &regs, &regs);
+  }  while (regs.r[0] != 0);
+*/
+
+  MDTrace(100, "Displaying Printers in main MD menu");
+
+  Printer_LoadSettings();
+
+  DriveMenuSize++;
+  proceduresInfo[DriveMenuSize].proc_ptr = Printer_Actions;
+  proceduresInfo[DriveMenuSize].drivenum = 0;
+  strcpy(proceduresInfo[DriveMenuSize].fsn_desc, printersListTop->name);
+  mainmenu = ibMenu_Add (mainmenu, proceduresInfo[DriveMenuSize].fsn_desc, "smd_print", 1, 0);
+
+  if (DriveMenuSize != -1) MenuRuleOff(mainmenu, DriveMenuSize);
+
+/*
+    if (PDriver_PrinterName() != NULL)
+    {
+      DriveMenuSize++;
+      proceduresInfo[DriveMenuSize].proc_ptr = Printer_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = 0;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, PDriver_PrinterName());
+      mainmenu = MenuExtend(mainmenu, proceduresInfo[DriveMenuSize].fsn_desc, "smd_print");
+      MenuRuleOff(mainmenu, DriveMenuSize);
+    }
+*/
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Printer_AddTBIcons                                              *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Printer_AddTBIcons (void)
+{
+  // ToolBar_AddIcon("md_print", 0, "Printers", NULL);
+}

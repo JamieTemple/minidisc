@@ -1,0 +1,50 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/psion.h                                                  *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_PSION
+#define MDH_CFG_PSION
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_ps?_xxxx                                                     *
+ * Purpose   : Psion options panes icon numbers.                               *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+/* Main options pane icon numbers */
+#define OW_psi_INCLUDE  2
+#define OW_psi_DRIVER   3
+#define OW_psi_DRVNAME  4
+#define OW_psi_CONNECT  6
+#define OW_psi_APPPATH  7
+#define OW_psi_INTBAR   9
+
+/* PsiRiscFS options pane icon numbers */
+#define OW_ps0_RAWDRVS  3
+
+/* PsiFS options pane icon numbers */
+#define OW_Ps1_NORAM    2
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_Psion               (void);
+void  OWClose_Psion              (void);
+void  OWStore_Psion              (void);
+BOOL  OptionPane_ClickPsion      (event_pollblock *event, void *reference);
+BOOL  OptionPane_MenuPsionDriver (event_pollblock *event, menu_ptr menu);
+
+
+#endif

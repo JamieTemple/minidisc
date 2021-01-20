@@ -1,0 +1,249 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/modules/hostfs.c,v $
+
+   $Revision: 1.1 $
+   $Date: 2004/04/14 14:44:20 $
+
+   HostFS specific code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/menu.h"
+#include "minidisc/core/toolbar.h"
+
+#include "minidisc/modules/filecore.h"
+
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : HostFS_Actions
+   Purpose   : Process HostFS specific events in the main MiniDisc menu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/10/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void HostFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  db_fn_begin();
+
+  switch(mevent)
+  {
+    case click:
+      if (MenuGet_SubMenuLevel (event) == 0)
+      {
+        sprintf (MD_tmp, "Filer_OpenDir %s.$", fsn_desc);
+        _kernel_oscli (MD_tmp);
+      }
+      else
+        dirMenu_Click (event);
+      break;
+
+    case follow:
+      dirMenu_FromDrive (event, FALSE);
+      break;
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : HostFS_ListDrives
+   Purpose   : Add HostFS drives into the main MiniDisc menu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/10/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *HostFS_ListDrives (void *mainmenu)
+{
+  FILE *fptr;
+  int   i, aChar;
+  char  tBuff[32];
+
+
+  db_fn_begin();
+
+  db_trace(100, "Displaying HostFS devices in main MD menu");
+
+  if (XUtil_ModEnsure ("HostFS"))
+  {
+    // Get the devices list, store it in a PipeFS temporary file.
+    _kernel_oscli ("HostFS:devices { > pipe::$.devices }");
+
+    // Read through the file we just created...
+    fptr = fopen("pipe::$.devices", "r");
+    while (!feof(fptr))
+    {
+      // Read a device
+      for (i = 0, aChar = -1; (aChar != 0) && (i < 32); i++)
+      {
+        aChar = fgetc(fptr);
+        tBuff[i] = aChar;
+      }
+
+      // Skip the crlf
+      aChar = fgetc(fptr);
+      aChar = fgetc(fptr);
+
+      // Stick it into the menu.
+      if (!feof(fptr))
+      {
+        DriveMenuSize++;
+        sprintf(proceduresInfo[DriveMenuSize].fsn_desc, "HostFS::%s", tBuff);
+        mainmenu = ibMenu_Add (mainmenu, proceduresInfo[DriveMenuSize].fsn_desc, "smd_hd", 1, 0);
+        proceduresInfo[DriveMenuSize].proc_ptr = HostFS_Actions;
+        proceduresInfo[DriveMenuSize].drivenum = 0;
+      }
+    }
+
+    // Tidy up before we leave.
+    fclose(fptr);
+  }
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : HostFS_TBHandler
+   Purpose   : Process HostFS specific events on the main MiniDisc toolbar.                                                        
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/10/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void HostFS_TBHandler (void *event, void *reference)
+{
+  int          i;
+  mouse_block  ptrInfo;
+
+
+  db_fn_begin();
+
+  if ((int)reference == 2)
+  {
+    MDTrace (1, "MouseClick");
+
+    i = (int)(((event_pollblock *)event)->data.mouse.icon);
+
+    Wimp_GetPointerInfo(&ptrInfo);
+
+    switch(ptrInfo.button.value)
+    {
+      case 1:  // Adjust - Display a directory menu
+        sprintf(TB__DiscName, "%s.$", tbButtons[i].helpText);
+        dirMenu_SetFlags ();
+        dirMenu_FromPath (TB__DiscName, event);
+        break;
+
+      case 4:  // Select - Open the root directory of the drive
+        sprintf(MD_tmp, "Filer_OpenDir %s.$", tbButtons[i].helpText);
+        _kernel_oscli(MD_tmp);
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : HostFS_AddTBIcons
+   Purpose   : Add HostFS icons on to the main MiniDisc toolbar.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/10/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void HostFS_AddTBIcons (void)
+{
+  FILE *fptr;
+  int   i, aChar;
+  char  tBuff[32];
+
+
+  db_fn_begin();
+
+  if (XUtil_ModEnsure ("HostFS"))
+  {
+    // Get the devices list, store it in a PipeFS temporary file.
+    _kernel_oscli ("HostFS:devices { > pipe::$.devices }");
+
+    // Read through the file we just created...
+    fptr = fopen("pipe::$.devices", "r");
+    while (!feof(fptr))
+    {
+      // Read a device
+      for (i = 0, aChar = -1; (aChar != 0) && (i < 32); i++)
+      {
+        aChar = fgetc(fptr);
+        tBuff[i] = aChar;
+      }
+
+      // Skip the crlf
+      aChar = fgetc(fptr);
+      aChar = fgetc(fptr);
+
+      // Stick it into the menu.
+      if (!feof(fptr))
+      {
+        sprintf(MD_tmp, "HostFS::%s", tBuff);
+        ToolBar_AddIcon("md_hd", 0, "harddisc", MD_tmp, (tb_proc) HostFS_TBHandler);
+      }
+    }
+
+    // Tidy up before we leave.
+    fclose(fptr);
+  }
+  db_fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: hostfs.c,v $
+   Revision 1.1  2004/04/14 14:44:20  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+
+--------------------------------------------------------------------------------
+*/
+

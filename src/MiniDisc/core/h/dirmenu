@@ -1,0 +1,60 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/dirmenu.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:02 $
+
+   Directory path menu creation / clicks management code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef __MINIDISC_CORE_DIRMENU_H
+#define __MINIDISC_CORE_DIRMENU_H
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  dirMenu_FromPath    (char *filePath, void *event);
+extern void *dirMenu_FromDir     (char *filePath, char *title, bool up);
+extern void *dirMenu_FromDrive   (void *event, int up);
+
+extern void  dirMenu_Click       (void *event);
+
+extern void  dirMenu_SetFlags    (void);
+
+extern void  dirMenu_AddHandlers (void *dirMenu);
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: dirmenu.h,v $
+   Revision 1.2  2003/10/05 16:00:02  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

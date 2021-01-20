@@ -1,0 +1,102 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/toolbar.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:16 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef MDH_TOOLBAR
+#define MDH_TOOLBAR
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Macros
+--------------------------------------------------------------------------------
+*/
+#define MaxToolbarButtons 50
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Shared types
+--------------------------------------------------------------------------------
+*/
+typedef int (*tb_proc) (void *poll_block, void *ref);
+
+typedef struct
+{
+  char    *helpText;
+  tb_proc  function;
+  char     interface[menuNameLength];
+  int      device;
+} ToolBar_Buttons;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern ToolBar_Buttons  tbButtons[MaxToolbarButtons];
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern int  ToolBar_AddIcon2   (char *barSprite, char *ptr, int small, char *bigSprite, char *barHelpText,
+                                tb_proc ref);
+extern int  ToolBar_AddIcon    (char *barSprite,            int small, char *bigSprite, char *barHelpText, tb_proc ref);
+extern void ToolBar_Initialise (void);
+extern void Toolbar_Reinit     (void);
+extern void ToolBar_AddGap     (void);
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: toolbar.h,v $
+   Revision 1.2  2003/10/05 16:00:16  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

@@ -1,0 +1,125 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/shortcuts/path.c                                       *
+ * Purpose   : 'Path' shortcuts specific code.                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/shortcuts/command.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "shared/utilities.h"
+
+#include "DeskLib:File.h"
+#include "DeskLib:Mem.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+void Shortcut_PathDispose (shortcuts_menu **item)
+{
+  free ((*item)->shortcut.path.label);
+  free ((*item)->shortcut.path.pathName);
+}
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_PathAction                                            *
+ * Purpose   : A directory item in a path submenu has been clicked upon.       *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/07/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_PathAction(shortcuts_menu *current, event_pollblock *event, int callType)
+{
+  db->fn_begin();
+
+  switch(callType)
+  {
+    case 0:
+      d->currentMenu.allowInApps = current->shortcut.path.allowInApps;
+      d->currentMenu.hidePling   = current->shortcut.path.hidePling;
+      dirMenu_FromPath (current->shortcut.path.pathName, event);
+      break;
+
+    case 1:
+      dirMenu_Click (event);
+      break;
+
+    case 2:
+      sprintf(MD_tmp, "Filer_Run %s", current->shortcut.path.pathName);
+      Wimp_StartTask(MD_tmp);
+      break;
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_AddPath                                               *
+ * Purpose   : Add a directory path to the shortcuts menu.                     *
+ * Status    : Implementation (V1.1.0)                                         *
+ * V1.1.0    : 12/01/2001 - Update - Now uses generic sprite code.             *
+ * V1.0.4    : 12/12/1999 - Update - Uses an application sprite in menus if    *
+ *                          one exists.                                        *
+ * V1.0.3    : 11/12/1999 - Update - Does shading & rule-offs.                 *
+ * V1.0.2    : 03/12/1999 - Update - Now uses MiniDisc path sprite.            *
+ * V1.0.1    : 06/11/1999 - Update - Now uses 'label' in icons.                *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_AddPath(menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry)
+{
+  menu_item *menuItem;
+  int        buffSize;
+  char      *fileName;
+  char       aString[256];
+  BOOL       shrinkSprite;
+
+
+  menuItem                  = MenuGet_Item(aMenu, entryNumber);
+  menuItem->iconflags.value = 0x7000113;
+  buffSize                  = strlen(menuEntry->shortcut.path.label);
+  menuItem->icondata.indirecttext.buffer = malloc(buffSize+1);
+  strcpy(menuItem->icondata.indirecttext.buffer, menuEntry->shortcut.path.label);
+  menuItem->icondata.indirecttext.bufflen = buffSize;
+
+  fileName     = XUtil_GetLeafName  (menuEntry->shortcut.path.pathName);
+  shrinkSprite = XUtil_GetDirSprite (fileName, aString, "S");
+
+  menuItem->icondata.indirecttext.validstring = malloc (strlen(aString)+1);
+  strcpy    (menuItem->icondata.indirecttext.validstring, aString);
+
+  menuItem->menuflags.data.ticked     = 0;
+  menuItem->menuflags.data.openshaded = 0;
+  menuItem->iconflags.data.shaded     = !File_IsDirectory(menuEntry->shortcut.path.pathName);
+  menuItem->iconflags.data.halfsize   = shrinkSprite;
+  menuItem->menuflags.data.shaded     = menuItem->iconflags.data.shaded;
+  menuItem->menuflags.data.dotted     = menuEntry->ruledOff;
+  menuItem->menuflags.data.writable   = 0;
+  menuItem->menuflags.data.notifysub  = 1;
+  menuItem->submenu.value             = 1;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+

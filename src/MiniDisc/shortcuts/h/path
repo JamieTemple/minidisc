@@ -1,0 +1,38 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : modules/scut-path.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SCUT_PATH
+#define MDH_SCUT_PATH
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "DeskLib:Menu.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  Shortcuts_AddPath    (menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry);
+extern void  Shortcuts_LoadScPath (char *stringStart, shortcuts_menu *next);
+extern void  Shortcuts_SaveScPath (char *resultBuffer, shortcuts_menu *aShortcut);
+extern void  Shortcuts_PathAction (shortcuts_menu *current, event_pollblock *event, int callType);
+extern void  Shortcut_PathDispose (shortcuts_menu **item);
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif

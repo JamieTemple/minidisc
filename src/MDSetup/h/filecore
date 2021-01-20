@@ -1,0 +1,42 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/filecore.h                                               *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_FILECORE
+#define MDH_CFG_FILECORE
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_fil_xxxx                                                     *
+ * Purpose   : Filecore options pane icon numbers.                             *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 14/09/2002 - Update - Added 'Daily saves directories' icon.     *
+ * V1.0.1    : 11/03/2002 - Update - Added 'Ignore Public on toolbars' icon.   *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_fil_NOICONS  2
+#define OW_fil_GREYOUT  3
+#define OW_fil_HIDEIDE  6
+#define OW_fil_DAILYSV  7
+#define OW_fil_INMENU   8
+#define OW_fil_INTBAR   9
+#define OW_fil_NOPUB   10
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_FileCore   (void);
+void  OWClose_FileCore  (void);
+
+
+#endif

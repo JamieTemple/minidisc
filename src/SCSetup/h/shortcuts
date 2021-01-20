@@ -1,0 +1,47 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/sb-menu.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_MENU
+#define MDH_SB_MENU
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : SD_menu_<xxx>                                                   *
+ * Purpose   : Create / update 'menu' dialog icon numbers.                     *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define SD_menu_label     2
+#define SD_menu_realmenu  4
+#define SD_menu_Cancel    7
+#define SD_menu_OK        6
+#define SD_menu_selector  9
+#define SD_menu_ruleoff  10
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  SCEdit_AddMenu          (int x, int yPos, shortcuts_menu *item);
+void  SCOK4                   (dialog2_block *aDialog);
+BOOL  SCEdit_OP4_MenuSelected (event_pollblock *event, void *reference);
+BOOL  SCEdit_OP4_Menu         (event_pollblock *event, void *reference);
+void  SCOP4                   (dialog2_block *aDialog);
+
+
+#endif
+

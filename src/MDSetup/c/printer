@@ -1,0 +1,45 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/printer.c                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MDSetup/main.h"
+
+#include "MDSetup/printer.h"
+
+#include "DeskLib:Icon.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWFill_Printer                                                  *
+ * Purpose   : Populate the 'Printers' options pane.                           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWFill_Printer(void)
+{
+  Icon_SetSelect(prefspane, OW_prt_INCLUDE, !tempCfg.printer.inMenu);
+  Icon_SetSelect(prefspane, OW_prt_QUITPM,  !tempCfg.printer.QuitPM);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : OWClose_Printer                                                 *
+ * Purpose   : Record options from the Printers pane before closing.           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void OWClose_Printer (void)
+{
+  tempCfg.printer.inMenu = !Icon_GetSelect(prefspane, OW_prt_INCLUDE);
+  tempCfg.printer.QuitPM = !Icon_GetSelect(prefspane, OW_prt_QUITPM);
+}
+
+

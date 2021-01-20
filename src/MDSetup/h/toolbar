@@ -1,0 +1,53 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/toolbar.h                                                *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_TOOLBAR
+#define MDH_CFG_TOOLBAR
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_tbr_xxxx                                                     *
+ * Purpose   : Toolbar options pane icon numbers.                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 26/08/2001 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_tbr_ENABLED   2
+#define OW_tbr_INCLUDEM  3
+#define OW_tbr_INCLUDED  4
+#define OW_tbr_INCLUDEL  5
+#define OW_tbr_SHOWTIPS  6
+#define OW_tbr_HIDEONL   7
+#define OW_tbr_HIDEON0   8
+#define OW_tbr_HIDEON1   9
+#define OW_tbr_DISPLAYL 10
+#define OW_tbr_DISPLAY0 11
+#define OW_tbr_DISPLAY1 12
+#define OW_tbr_HIDEON2  13
+#define OW_tbr_BIGBUTS  14
+#define OW_tbr_POSNL    15
+#define OW_tbr_POSN0    16
+#define OW_tbr_POSN1    17
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  OWFill_Toolbar          (void);
+extern void  OWClose_Toolbar         (void);
+extern BOOL  OPMenu_Toolbar_fromMenu (event_pollblock *event, menu_ptr menu);
+extern BOOL  OptionPane_ClickToolbar (event_pollblock *event, void *reference);
+
+
+#endif

@@ -1,0 +1,46 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/filters/filters.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:20 $
+
+   MiniDisc desktop filtering code interface.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef MDH_FILTERS
+#define MDH_FILTERS
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern void  MDFilters_Remove        (void);
+extern void  MDFilters_Initialise    (void);
+extern void  MDFilters_RegisterKey   (int keyValue, int action, void *context);
+extern void  MDFilters_DeRegisterKey (int keyValue);
+extern void  MDFilters_Setup         (int claim, void *pw);
+
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: filters.h,v $
+   Revision 1.2  2003/10/05 16:00:20  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/

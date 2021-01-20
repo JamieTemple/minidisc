@@ -1,0 +1,549 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/filters/taskswitch.cpp,v $
+
+   $Revision: 1.2 $
+   $Date: 2004/04/17 14:56:34 $
+
+   'CoolSwitch' style alt-tab window / program switcher filter code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Str.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:WimpMsg.h"
+#include "DeskLib:WimpSWIs.h"
+#include "DeskLib:Window.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Type info.
+--------------------------------------------------------------------------------
+*/
+typedef struct winiconinfo
+{
+  icon_createblock    icb;
+  task_handle         task;
+  window_handle       window;
+  icon_handle         icon;
+  char               *task_name,
+                     *window_title;
+  struct winiconinfo *next;
+} winiconinfo;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/                                                                                                            static window_handle  tsw;
+static int            xkeystate    = 0;
+static winiconinfo   *ici_first    = NULL,
+                     *ici_last     = NULL,
+                     *ici_selected = NULL;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSwitcher_CreateWindow
+   Purpose   : Create the task switcher window, put some sprites into it.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int TaskSwitcher_CreateWindow ()
+{
+  winiconinfo      *wib;
+  int               i, ic, itop;
+  icon_createblock *icb;
+  task_handle       th;
+  int               iconNumber;
+  icon_block        iBlock;
+  char              results[1024];
+
+
+  db->fn_begin();
+
+  tsw = Window_Create("taskswitch", 0);
+
+  /* Count the number of windows (used to calculate the height of
+   * the task switcher window.
+   */
+  for(wib = ici_first, ic = 0; wib != NULL; wib = wib->next, ic++);
+
+  // Task Switcher window y1 extent.
+  itop = -728 + ((ic - 1) / 8 * 88);
+
+  // Now stick an icon into the window for each entry in our list...
+  for(wib = ici_first, i = 0; wib != NULL; wib = wib->next, i++)
+  {
+    icb                                       = &(wib->icb);
+    icb->window                               = tsw;
+    icb->icondata.workarearect.min.x          = (i % 8) * 80 + 8;
+    icb->icondata.workarearect.max.x          = icb->icondata.workarearect.min.x + 80;
+    icb->icondata.workarearect.max.y          = itop - (i / 8 * 88);
+    icb->icondata.workarearect.min.y          = icb->icondata.workarearect.max.y - 88;
+    icb->icondata.flags.value                 = 0x1700011b;
+    icb->icondata.data.indirecttext.buffer    = malloc(1);
+    icb->icondata.data.indirecttext.buffer[0] = 0;
+    icb->icondata.data.indirecttext.bufflen   = 1;
+
+    // The filer is a special case, show an open directory icon
+    if (strcmp(wib->task_name, "Filer") == 0)
+      icb->icondata.data.indirecttext.validstring = strdup("r2;sdirectoryo");
+
+    // Look for an appropriate icon to stick in the task switcher window...
+    else
+    {
+      db->tracef(1, "Searching for Iconbar task with handle %d ...", wib->task);
+
+      for(iconNumber = 0;; iconNumber++)  // Search along the iconbar...
+      {
+        th = WimpMsg_GetTaskHandle(-2, iconNumber);  // Comparing the task handle for each icon...
+        if ((th == wib->task) || (th == 0))  break;  // ... to that of this window.
+      }
+
+      /* Found an icon on the iconbar with the same owner as our window,
+       * so we steal the sprite details from there to use in our window.
+       */
+      if (th == wib->task)
+      {
+        Wimp_GetIconState(-2, iconNumber, &iBlock);
+
+        // All text icons on the iconbar will be indirected text + sprite icons
+        if (iBlock.flags.data.text == 1)
+        {
+          db->tracef(1, "indirected text+sprite task : %s", wib->task_name);
+          XUtil_ReadAppMemory(wib->task, (void *) iBlock.data.indirecttext.validstring, results, 1024);
+          icb->icondata.data.indirecttext.validstring = malloc(strlen(results) + 4);
+          sprintf(icb->icondata.data.indirecttext.validstring, "r2;%s", results);
+        }
+
+        // Indirected sprite only
+        else if ((iBlock.flags.data.indirected == 1))
+        {
+          db->tracef(1, "indirected sprite task : %s", wib->task_name);
+          XUtil_ReadAppMemory(wib->task, (void *) iBlock.data.indirectsprite.name, results, 1024);
+          icb->icondata.data.indirecttext.validstring = malloc(strlen(results) + 5);
+          sprintf(icb->icondata.data.indirecttext.validstring, "r2;s%s", results);
+        }
+
+        // Direct sprite only
+        else if ((iBlock.flags.data.indirected == 0))
+        {
+          db->tracef(1, "normal sprite task : %s", wib->task_name);
+          icb->icondata.data.indirecttext.validstring = malloc(wimp_MAXNAME + 5);
+          sprintf(icb->icondata.data.indirecttext.validstring, "r2;s%s", iBlock.data.spritename);
+        }
+
+        // Something else ????? (we should never get here really)
+        else
+        {
+          db->tracef(1, "unusual task : %s", wib->task_name);
+          icb->icondata.data.indirecttext.validstring = strdup("r2;sfile_xxx");
+        }
+      }
+
+      // Could not find an associated task on the iconbar, so use a fallback sprite
+      else
+      {
+        db->tracef(1, "non-iconbar task : %s", wib->task_name);
+
+        sprintf(results, "!%s", wib->task_name);  // Guess at the application sprite name.
+
+        if (XUtil_spriteExists(results))
+        {
+          icb->icondata.data.indirecttext.validstring = malloc(strlen(wib->task_name) + 6);
+          sprintf(icb->icondata.data.indirecttext.validstring, "r2;s!%s", wib->task_name);
+        }
+        else
+          icb->icondata.data.indirecttext.validstring = strdup("r2;sfile_xxx");
+      }
+    }
+    // Create the new icon.
+    Wimp_CreateIcon(icb, &wib->icon);
+  }
+
+  // Ensures that the window is sized to show all icons
+  Window_SetExtent(tsw, 0, -880, 656, itop + 4);
+  // Display out Task Switcher window
+  Window_Show(tsw, open_CENTERED);
+  // Make sure that the TAB keypress is sent to us instead.
+  Window_GainCaret(tsw);
+
+
+  db->fn_end();
+
+
+  return 0;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSwitcher_BuildList
+   Purpose   : Create our list of windows for use / selection in our window.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int TaskSwitcher_BuildList (void)
+{
+  window_info    aWindow;
+  char           results[1024];
+  char          *taskname;
+  winiconinfo   *wib;
+  task_handle    task;
+  window_handle  next_window = -1,
+                 wptr;
+  int            window_count = 0;
+
+
+  db->fn_begin();
+
+  Wimp_Enumerate(windowenum_FRONT, &next_window);     // Get the top window, so we can work down the stack
+
+  while (next_window != -1)
+  {
+    wptr = next_window;                               // Record the window handle of the current window.
+
+    Wimp_Enumerate(windowenum_BEHIND, &next_window);  // Read the next window down the stack.
+
+    task = WimpMsg_GetTaskHandle(wptr, 0);            // Read the task handle of that window.
+
+    if (task == 0)  continue;                         // Keep looking if noone responds to the message.
+
+    taskname = XUtil_TaskGetName(task);
+
+    if (strcmp(taskname, "Pinboard") == 0)  break;    // Bail when we hit the pinboard.
+
+    Window_GetInfo3 (wptr, &aWindow);                 // Read details of window
+
+    // Don't enumerate windows that are off screen.
+    if ((aWindow.block.screenrect.max.x < 0) ||
+        (aWindow.block.screenrect.max.y < 0))     continue;
+
+    // Only enumerate windows with title bars.
+    if ((aWindow.block.flags.data.newflags == 1) &&
+        (aWindow.block.flags.data.titlebar == 0)) continue;
+
+    if ((aWindow.block.flags.data.newflags == 0) &&
+        (aWindow.block.flags.data.hastitle == 0)) continue;
+
+    // Should also check bit 23 of window flags here, to stop us from opening furniture!
+
+    // Read the title bar
+    if (aWindow.block.titleflags.data.indirected)
+      XUtil_ReadAppMemory(task, aWindow.block.title.indirecttext.buffer, results, 1024);
+    else
+      strcpycr(results, aWindow.block.title.text);
+
+    // Create a new windows list entry
+    wib = (winiconinfo *)malloc(sizeof(winiconinfo));
+
+    wib->next         = NULL;
+    wib->task         = task;
+    wib->window       = wptr;
+    wib->task_name    = strdup(taskname);
+    wib->window_title = strdup(results);
+
+    if (ici_first == NULL)
+      ici_first       = wib;     // new list
+    else
+      ici_last->next  = wib;     // Bolt on to end of list.
+
+    ici_last          = wib;     // ditto.
+
+    window_count++;
+  }
+
+  db->fn_end();
+
+
+  return window_count;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSwitcher_TAB
+   Purpose   : Select next task in switcher window
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL TaskSwitcher_TAB (event_pollblock *event, void *reference)
+{
+  winiconinfo *ici_this,
+              *last;
+
+
+  db->fn_begin();
+
+  if ((event->data.key.code == 0x018a) || (event->data.key.code == 0x019a))
+  {
+    db->trace(1, "TAB key pressed!");
+
+    // Highlight the first icon in our list
+    if (ici_selected == NULL)
+    {
+      ici_selected = ici_first;
+      Icon_SetFlags (tsw, ici_selected->icon, 0x04, 1);  // border
+      Icon_SetText  (tsw, 0, ici_selected->window_title);
+    }
+
+
+    // Deselect the currently selected icon (remove border)
+    else
+    {
+      Icon_SetFlags (tsw, ici_selected->icon, 0x04, 0);
+      Window_ForceRedraw (tsw, ici_selected->icb.icondata.workarearect.min.x,
+                               ici_selected->icb.icondata.workarearect.min.y,
+                               ici_selected->icb.icondata.workarearect.max.x,
+                               ici_selected->icb.icondata.workarearect.max.y);
+
+      if ((event->data.key.code == 0x019a))  // Select the previous icon
+      {
+        if (ici_selected == ici_first)  ici_selected = ici_last;
+        else
+        {
+          ici_this = ici_first;
+          while (ici_this != ici_selected)
+          {
+            last = ici_this;
+            ici_this = ici_this->next;
+          }
+          ici_selected = last;
+        }
+      }
+      else  // Select the next icon
+      {
+        if (ici_selected->next == NULL)  ici_selected = ici_first;
+        else                             ici_selected = ici_selected->next;
+      }
+
+      Icon_SetFlags (tsw, ici_selected->icon, 0x04, 1);
+
+      // Put the window title into the display field as well.
+      Icon_SetText  (tsw, 0, ici_selected->window_title);
+    }
+  }
+
+  db->fn_end();
+
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSwitcher_Open
+   Purpose   : Create the task switcher window.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL TaskSwitcher_Open (event_pollblock *event, void *reference)
+{
+  db->fn_begin();
+
+  if (TaskSwitcher_BuildList() > 0)
+  {
+    TaskSwitcher_CreateWindow ();
+
+    ici_selected = NULL;
+
+    Event_Claim(event_KEY, tsw, event_ANY, TaskSwitcher_TAB, NULL);
+  };
+
+  db->fn_end();
+
+
+  UNUSED(event);
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSwitcher_Close
+   Purpose   : Move the selected window to the top of the stack.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 11/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL TaskSwitcher_Close (event_pollblock *event, void *reference)
+{
+  winiconinfo  *wib,
+               *oldwib;
+  window_state  state;
+
+
+  db->fn_begin();
+
+  // Read the current state of the window to pull to the front.
+  Wimp_GetWindowState(ici_selected->window, &state);
+
+  // Set it's status to be on the top of the window stack.
+  state.openblock.behind = -1;
+
+  // Generate a WIMP message to get the program to move the window.
+  Wimp_SendMessage(event_OPEN, (message_block *)&state.openblock, ici_selected->task, -1);
+
+  // Dump our windows list data.
+  wib = ici_first;
+
+  while(wib != NULL)
+  {
+    free(wib->task_name);
+    free(wib->window_title);
+    free(wib->icb.icondata.data.indirecttext.buffer);
+    free(wib->icb.icondata.data.indirecttext.validstring);
+    oldwib = wib;
+    wib    = wib->next;
+    free(oldwib);
+  }
+
+  ici_first = NULL;
+  ici_last  = NULL;
+
+  Window_Delete(tsw);  // Automagically removes event handlers.
+
+  tsw = NULL;
+
+  db->fn_end();
+
+
+  UNUSED(event);
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : TaskSwitcher_Event
+   Purpose   : Main event catching entry point for Task Switcher
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 12/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int TaskSwitcher_Event(_kernel_swi_regs *r, void *pw)
+{
+  if (MDCfg->filters.taskSwitcher != 0)  return 1;  // Filter disabled;
+
+  // NOTHING is currently pressed
+  if (xkeystate == 0)
+  {
+    if (r->r[1] != 1)      return 1;  // Only process key down events
+
+    if (r->r[2] != 0x05e)  return 1;  // Not Alt(l) pressed
+
+    xkeystate = 1;                    // Flag alt pressed;
+    ici_first = NULL;                 // Flag window as empty;
+
+    return 1;
+  }
+
+
+  // in operation
+  if (xkeystate == 1)
+  {
+    // Key down, check for TAB
+    if (r->r[1] == 1)
+    {
+      if (r->r[2] != 0x026)  return 1;  // Not TAB pressed
+
+      if (tsw != NULL)       return 1;  // Do nothing if the window is already on screen.
+
+      WimpMsg_SendTask(event_SEND, (message_action)MDMsg_CoolSwitch_Open, NULL, 0, d->task);
+
+      return 1;  // Exit, but pass on keypress
+    }
+
+    // Key up, check for Alt(l)
+    else
+    {
+      if (r->r[2] != 0x05e)  return 1;  // Not Alt(l) released
+
+      xkeystate = 0;                    // Flag released
+
+      if (tsw == NULL)       return 1;  // Do nothing if we've yet to put the window up.
+
+      WimpMsg_SendTask(event_SEND, (message_action)MDMsg_CoolSwitch_Close, NULL, 0, d->task);
+
+      return 1;
+    }
+  }
+
+
+  UNUSED(pw);
+
+
+  return 1;  // Just pass on anything we're not interested in...
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: taskswitch.cpp,v $
+   Revision 1.2  2004/04/17 14:56:34  jtemple
+   Ensured directory opener only functioned when option enabled.
+   Fixed task name reading in filter manager core.
+   Added option to enable / disable task switcher, added Shift support.
+
+   Revision 1.1  2004/04/14 14:44:15  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+
+--------------------------------------------------------------------------------
+*/
+
+
+

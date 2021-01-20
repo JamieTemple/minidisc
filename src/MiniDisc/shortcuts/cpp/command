@@ -1,0 +1,121 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/shortcuts/command.cpp                                  *
+ * Purpose   : 'Command' shortcuts specific code.                              *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/shortcuts/command.h"
+#include "minidisc/shortcuts/shortcuts.h"
+
+#include "minidisc/core/menu.h"
+
+#include "DeskLib:Mem.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcut_CommandAddTBIcon                                       *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 06/10/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcut_CommandAddTBIcon (command_info *scut, int index, char *menuName)
+{
+  Shortcuts_AddTBIcon ("md!scmd01", 0, "file_feb", scut->label, menuName, index);
+}
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcut_CommandDispose                                         *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 06/10/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcut_CommandDispose (shortcuts_menu **item)
+{
+  free ((*item)->shortcut.command.label);
+  free ((*item)->shortcut.command.command);
+}
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_CommandAction                                         *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/07/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_CommandAction(shortcuts_menu *current, event_pollblock *event, int callType)
+{
+  db->fn_begin();
+
+  db->tracef(1, "command : %s", current->shortcut.command.command);
+
+  Wimp_StartTask3(current->shortcut.command.command, NULL);
+
+  UNUSED(event);
+  UNUSED(callType);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_AddCommand                                            *
+ * Purpose   : Add a system command to the shortcuts menu.                     *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 11/12/1999 - Update - Now supports rule-offs.                   *
+ * V1.0.0    : 23/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_AddCommand(menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry)
+{
+  menu_item *menuItem;
+  int        buffSize;
+
+
+  menuItem                  = MenuGet_Item(aMenu, entryNumber);
+  menuItem->iconflags.value = 0x7000113;
+  menuItem->iconflags.data.shaded = 0;
+  buffSize                  = strlen(menuEntry->shortcut.command.label);
+  menuItem->icondata.indirecttext.buffer = malloc(buffSize+1);
+  strcpy(menuItem->icondata.indirecttext.buffer, menuEntry->shortcut.command.label);
+  menuItem->icondata.indirecttext.bufflen = buffSize;
+
+  menuItem->icondata.indirecttext.validstring = malloc(12);
+  strcpy(menuItem->icondata.indirecttext.validstring, "smd!scmd01");
+
+  menuItem->menuflags.data.ticked     = 0;
+  menuItem->menuflags.data.shaded     = 0;
+  menuItem->menuflags.data.openshaded = 0;
+  menuItem->menuflags.data.writable   = 0;
+  menuItem->menuflags.data.dotted     = menuEntry->ruledOff;
+  menuItem->menuflags.data.notifysub  = 0;
+  menuItem->submenu.value             = -1;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+

@@ -1,0 +1,1001 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: $
+
+   $Revision: $
+   $Date: $
+
+   'Iconbar' configuration pane maintenance routines.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "MDSetup/main.h"
+
+#include "MDSetup/iconbar.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:Icon.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (local) Global Variables
+--------------------------------------------------------------------------------
+*/
+static menu_ptr  ibarAppearanceMenu = NULL;
+static menu_ptr  ibarActionMenu     = NULL;
+static menu_ptr  ibarShortcutsMenu  = NULL;
+static menu_ptr  ibarDragActionMenu = NULL;
+static menu_ptr  ibarDeleteOptsMenu = NULL;
+static menu_ptr  ibarDragToMenuMenu = NULL;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : icon_alter
+   Purpose   : Alters the flags and validation string for an existing icon.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/08/2003 - Preliminary implementation.
+   Notes     : NO CHECKS ARE PERFORMED TO ENSURE THAT THERE IS ROOM ENOUGH FOR
+               THE VALIDATION STRING.
+--------------------------------------------------------------------------------
+*/
+static void icon_alter (window_handle w, icon_handle i, unsigned int set,
+                       unsigned int clear, char *validation)
+{
+  Icon_SetFlags        (w, i, set,   FALSE);
+  Icon_SetFlags        (w, i, clear, TRUE);
+  Icon_AlterValidation (w, i, validation);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : icon_makewritable
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void icon_makewritable (window_handle w, icon_handle i)
+{
+  icon_alter (w, i, 0xf0000208, 0x0700f335, "Pptr_write;Kta;R0");
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : icon_makedisplay
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void icon_makedisplay (window_handle w, icon_handle i)
+{
+  icon_alter     (w, i, 0x0000f000, 0x1700013d, "R2");
+  Icon_LoseCaret (w, i);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : SetDeleteOptions
+   Purpose   : Set delete options menu ticks from a string.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void SetDeleteOptions (menu_ptr aMenu, char *aString)
+{
+  Menu_SetFlags (aMenu, 0, strstr(aString, "~C") == NULL ? 1 : 0, 0);
+  Menu_SetFlags (aMenu, 1, strstr(aString, "~F") == NULL ? 1 : 0, 0);
+  Menu_SetFlags (aMenu, 2, strstr(aString, "~R") == NULL ? 1 : 0, 0);
+  Menu_SetFlags (aMenu, 3, strstr(aString, "~V") == NULL ? 1 : 0, 0);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : CalcActionModifiers
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 07/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int CalcActionModifiers (void)
+{
+  int modifiers = 0;
+
+
+  modifiers += Icon_GetSelect(prefspane, OW_icn_SHIFT) == TRUE ? MD_iconbar_SHIFT : 0;
+  modifiers += Icon_GetSelect(prefspane, OW_icn_CTRL)  == TRUE ? MD_iconbar_CTRL  : 0;
+  modifiers += Icon_GetSelect(prefspane, OW_icn_ALT)   == TRUE ? MD_iconbar_ALT   : 0;
+
+
+  return modifiers;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : UpdateIconbarActionFlags
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void UpdateIconbarActionFlags (void)
+{
+  int i;
+
+
+  for (i = 0; i < 8; i++)
+  {
+    if (tempCfg.iconbar.selectType[i] < 99 ||
+        tempCfg.iconbar.adjustType[i] < 99 ||
+        tempCfg.iconbar.dragAction[i] < 99)
+          Icon_Select   (prefspane, 28 + i);
+    else  Icon_Deselect (prefspane, 28 + i);
+  }
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : UpdateDragActions
+   Purpose   : Update Iconbar Drag actions icons.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 03/11/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void UpdateDragActions(int action_modifiers)
+{
+  char  aString[32] = {""};
+  char *aPtr = tempCfg.iconbar.dragDir[action_modifiers];
+
+
+  switch (tempCfg.iconbar.dragAction[action_modifiers])
+  {
+    case 0:    /* Copy / save */
+      Icon_Unshade (prefspane, OW_icn_FDRAGL);
+      Icon_Shade   (prefspane, OW_icn_FDRAGS);
+      break;
+
+    case 1:    /* 'SuperSave' */
+      Icon_Shade   (prefspane, OW_icn_FDRAGL);
+      Icon_Shade   (prefspane, OW_icn_FDRAGS);
+      break;
+
+    case 2:    /* Delete */
+      Icon_Unshade (prefspane, OW_icn_FDRAGL);
+      Icon_Unshade (prefspane, OW_icn_FDRAGS);
+      if (strstr(aPtr, "~C") == NULL)  strcat(aString, "Confirm ");
+      if (strstr(aPtr, "~F") == NULL)  strcat(aString, "Force ");
+      if (strstr(aPtr, "~R") == NULL)  strcat(aString, "Recurse ");
+      if (strstr(aPtr, "~V") == NULL)  strcat(aString, "Verbose ");
+      Icon_SetText(prefspane, OW_icn_FDRAGL, aString);
+      break;
+
+    case 3:    /* Trash */
+      Icon_Shade   (prefspane, OW_icn_FDRAGL);
+      Icon_Shade   (prefspane, OW_icn_FDRAGS);
+      break;
+
+    case 4:    /* Set CSD */
+      Icon_Shade   (prefspane, OW_icn_FDRAGL);
+      Icon_Shade   (prefspane, OW_icn_FDRAGS);
+      break;
+
+    case 5:    /* Command */
+      Icon_Unshade (prefspane, OW_icn_FDRAGL);  // enable writable
+      Icon_Shade   (prefspane, OW_icn_FDRAGS);  // disable shortcuts menu selector
+      break;
+
+    case 6:    /* Add Shortcut */
+      Icon_Unshade (prefspane, OW_icn_FDRAGL);
+      Icon_Unshade (prefspane, OW_icn_FDRAGS);
+      Icon_SetText (prefspane, OW_icn_FDRAGL, "Shortcuts");  // Should this be read from somewhere?
+      break;
+
+    case 99:   /* None */
+      Icon_Shade   (prefspane, OW_icn_FDRAGL);
+      Icon_Shade   (prefspane, OW_icn_FDRAGS);
+      break;
+
+    default:   /* UNDEFINED */
+      break;
+  }
+
+  if (tempCfg.iconbar.dragAction[action_modifiers] == 0 ||
+      tempCfg.iconbar.dragAction[action_modifiers] == 5) /* make input writable field */
+    icon_makewritable(prefspane, OW_icn_FDRAGL);
+
+  else  /* Make display field */
+    icon_makedisplay(prefspane, OW_icn_FDRAGL);
+
+  Icon_ForceWindowRedraw(prefspane, OW_icn_FDRAGS);
+  Icon_ForceWindowRedraw(prefspane, OW_icn_FDRAGL);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : UpdateActions
+   Purpose   : Update Iconbar Select/Adjust actions icons.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void UpdateActions (int action, int menuIcon, int writableIcon)
+{
+  if (action == 5)  /* Make display field */
+  {
+    Icon_Unshade      (prefspane, menuIcon);
+    icon_makedisplay  (prefspane, writableIcon);
+
+    if (strcmp(Icon_GetTextPtr(prefspane, writableIcon), "") == 0)
+      Icon_SetText(prefspane, writableIcon, "Shortcuts");
+  }
+  else                                                    /* make input writable field */
+  {
+    Icon_Shade        (prefspane, menuIcon);
+    icon_makewritable (prefspane, writableIcon);
+  }
+
+  Icon_SetShade (prefspane, writableIcon, action == 4 || action == 99 ? 1 : 0);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : UpdateSelectActions
+   Purpose   : Update Iconbar Select actions icons.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 09/08/2003 - Update - Now uses the common update code.
+   V1.0.0    : 03/11/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void UpdateSelectActions(int action_modifiers)
+{
+  UpdateActions(tempCfg.iconbar.selectType[action_modifiers],
+                OW_icn_SELECTM, OW_icn_SELECT);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : UpdateAdjustActions
+   Purpose   : Update Iconbar Adjust actions icons.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 09/08/2003 - Update - Now uses the common update code.
+   V1.0.0    : 03/11/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void UpdateAdjustActions(int action_modifiers)
+{
+  UpdateActions(tempCfg.iconbar.adjustType[action_modifiers],
+                OW_icn_ADJUSTM, OW_icn_ADJUST);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : UpdateIconbarActions
+   Purpose   : Populate the 'Iconbar actions' fields in the 'Iconbar'
+               configuration options pane.
+   Status    : Implementation (V2.0.0)
+   V2.0.0    : 03/11/2001 - Recode - Split out each actiion into new procs.
+   V1.0.1    : 07/01/2000 - Update - Revisited after splitting the 'general'
+                                     configuration pane in 2.
+   V1.0.0    : 26/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void UpdateIconbarActions(void)
+{
+  int action_modifiers = CalcActionModifiers();
+
+
+  UpdateDragActions   (action_modifiers);
+  UpdateSelectActions (action_modifiers);
+  UpdateAdjustActions (action_modifiers);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OWFill_Iconbar
+   Purpose   : Populate the 'Iconbar' options pane.
+   Status    : Implementation (V1.0.5)
+   V1.0.5    : 07/01/2000 - Update - Revisited after splitting the 'general'
+                                     configuration pane in 2.
+   V1.0.4    : 28/11/1999 - Update - Removed the big static arrays.
+   V1.0.3    : 26/09/1999 - Update - Moved iconbar actions setting out, as
+                            it's now also used by the 'actions' code.
+   V1.0.2    : 14/09/1999 - Update - Added Select/Adjust action types.
+   V1.0.1    : 11/09/1999 - Update - Added iconbar appearance options handlers
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void OWFill_Iconbar(void)
+{
+  char msgTag[12];
+  int  action_modifiers = CalcActionModifiers();
+
+
+  Icon_SetText  (prefspane, OW_icn_SELECT,   tempCfg.iconbar.select[action_modifiers]);
+  Icon_SetText  (prefspane, OW_icn_ADJUST,   tempCfg.iconbar.adjust[action_modifiers]);
+  Icon_SetText  (prefspane, OW_icn_ICONUD,   tempCfg.iconbar.userDefined);
+  Icon_SetText  (prefspane, OW_icn_FDRAGL,   tempCfg.iconbar.dragDir[action_modifiers]);
+
+  sprintf(msgTag, "conf.icon%02d", tempCfg.iconbar.iconType);
+  if (Msgs_Lookup (msgTag, Icon_GetTextPtr(prefspane, OW_icn_ICOND), 32) == FALSE)
+    Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_icn_ICOND), 32);
+  Icon_ForceRedraw(prefspane, OW_icn_ICOND);
+
+  sprintf(msgTag, "conf.actn%02d", tempCfg.iconbar.selectType[action_modifiers]);
+  if (Msgs_Lookup (msgTag, Icon_GetTextPtr(prefspane, OW_icn_SELACTD), 32) == FALSE)
+    Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_icn_SELACTD), 32);
+  Icon_ForceRedraw(prefspane, OW_icn_SELACTD);
+
+  sprintf(msgTag, "conf.actn%02d", tempCfg.iconbar.adjustType[action_modifiers]);
+  if (Msgs_Lookup (msgTag, Icon_GetTextPtr(prefspane, OW_icn_ADJACTD), 32) == FALSE)
+    Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_icn_ADJACTD), 32);
+  Icon_ForceRedraw(prefspane, OW_icn_ADJACTD);
+
+  sprintf(msgTag, "conf.idrg%02d", tempCfg.iconbar.dragAction[action_modifiers]);
+  if (Msgs_Lookup (msgTag, Icon_GetTextPtr(prefspane, OW_icn_FDRAGD), 32) == FALSE)
+    Msgs_Lookup ("err.unknown", Icon_GetTextPtr(prefspane, OW_icn_FDRAGD), 32);
+  Icon_ForceRedraw(prefspane, OW_icn_FDRAGD);
+
+  Icon_SetShade (prefspane, OW_icn_ICONUD, tempCfg.iconbar.iconType == 4 ? 0 : 1);
+
+  UpdateIconbarActions     ();
+  UpdateIconbarActionFlags ();
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OWClose_Iconbar
+   Purpose   : Record options from 'Iconbar' pane before closing.
+   Status    : Implementation (V1.0.3)
+   V1.0.3    : 07/01/2000 - Update - Revisited after splitting the 'general'
+                                     configuration pane in 2.
+   V1.0.2    : 28/11/1999 - Update - No longer requires temporary array.
+   V1.0.1    : 11/09/1999 - Update - Added iconbar icon & printer options.
+   V1.0.0    : 02/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void OWClose_Iconbar (void)
+{
+  int action_modifiers = CalcActionModifiers();
+
+
+  reAssignText (OW_icn_SELECT, tempCfg.iconbar.select[action_modifiers]);
+  reAssignText (OW_icn_ADJUST, tempCfg.iconbar.adjust[action_modifiers]);
+  reAssignText (OW_icn_ICONUD, tempCfg.iconbar.userDefined);
+  if (tempCfg.iconbar.dragAction[action_modifiers] != 2)
+  {  reAssignText (OW_icn_FDRAGL, tempCfg.iconbar.dragDir[action_modifiers]); }
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OPMenu_Iconbar_fdrag
+   Purpose   : Process clicks in the 'Files dragged to iconbar' actions menu.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 02/10/2002 - Update - Fixed minor menu redraw bug.
+   V1.0.0    : 07/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OPMenu_Iconbar_fdrag (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  char         msgTag[12],
+               iconText[20];
+  int          action_modifiers = CalcActionModifiers();
+  int          i;
+
+
+  if (tempCfg.iconbar.dragAction[action_modifiers] !=
+      (event->data.selection[0] == iconbar_maxDragActions + 1 ? 99 : event->data.selection[0]))
+  {
+    tempCfg.iconbar.dragAction[action_modifiers] =
+      (event->data.selection[0] == iconbar_maxDragActions + 1 ? 99 : event->data.selection[0]);
+    sprintf(msgTag, "conf.idrg%02d", tempCfg.iconbar.dragAction[action_modifiers]);
+    if (Msgs_Lookup (msgTag,        iconText, 21) == FALSE)
+        Msgs_Lookup ("err.unknown", iconText, 21);
+    Icon_SetText  (prefspane, OW_icn_FDRAGD, iconText);
+    Icon_SetText  (prefspane, OW_icn_FDRAGL, "");      // Note: This may change as extra
+    UpdateIconbarActions();                            //       actions are added.
+    UpdateIconbarActionFlags ();
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+
+  for (i = 0; i <= iconbar_maxDragActions; i++)
+    Menu_SetFlags (menu, i, tempCfg.iconbar.dragAction[action_modifiers] == i ? 1 : 0, 0);
+
+  Menu_SetFlags (menu, iconbar_maxDragActions + 1,
+                 tempCfg.iconbar.dragAction[action_modifiers] == 99 ? 1 : 0, 0);
+
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OptionPane_MenuIconType
+   Purpose   : Process clicks in the 'Icon Type' configuration menu.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 05/12/1999 - Update - Params now send menu pointer.
+   V1.0.1    : 28/11/1999 - Update - Resized static arrays to sensible sizes.
+   V1.0.0    : 14/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OptionPane_MenuIconType (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  char         msgTag[12],
+               iconText[20];
+
+
+  if (tempCfg.iconbar.iconType != event->data.selection[0])
+  {
+    tempCfg.iconbar.iconType = event->data.selection[0];
+    sprintf(msgTag, "conf.icon%02d", tempCfg.iconbar.iconType);
+    if (Msgs_Lookup (msgTag,        iconText, 21) == FALSE)
+        Msgs_Lookup ("err.unknown", iconText, 21);
+    Icon_SetText  (prefspane, OW_icn_ICOND,  iconText);
+    Icon_SetShade (prefspane, OW_icn_ICONUD, tempCfg.iconbar.iconType == 4 ? 0 : 1);
+  }
+
+  Menu_SetFlags (menu, 0, tempCfg.iconbar.iconType == 0 ? 1 : 0, 0);
+  Menu_SetFlags (menu, 1, tempCfg.iconbar.iconType == 1 ? 1 : 0, 0);
+  Menu_SetFlags (menu, 2, tempCfg.iconbar.iconType == 2 ? 1 : 0, 0);
+  Menu_SetFlags (menu, 3, tempCfg.iconbar.iconType == 3 ? 1 : 0, 0);
+  Menu_SetFlags (menu, 4, tempCfg.iconbar.iconType == 4 ? 1 : 0, 0);
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OptionPane_MenuActionType
+   Purpose   : Process clicks in the 'Action Type' configuration menus.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 01/11/2001 - Update - No longer always blanks action fields.
+   V1.0.3    : 05/12/1999 - Update - Params now send menu pointer & icon no.
+   V1.0.2    : 28/11/1999 - Update - Resized static arrays to sensible sizes.
+   V1.0.1    : 26/09/1999 - Update - Uses external icons update proc.
+   V1.0.0    : 14/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OptionPane_MenuActionType (event_pollblock *event, menu_ptr menu, int icon)
+{
+  mouse_block  ptr;
+  char         msgTag[12],
+               iconText[33];
+  int          type, oldType,
+               action_modifiers = CalcActionModifiers();
+
+
+  if (icon == 3) type = tempCfg.iconbar.selectType[action_modifiers];
+  else           type = tempCfg.iconbar.adjustType[action_modifiers];
+
+  if (type != (event->data.selection[0] == iconbar_maxActions + 1
+      ? 99 : event->data.selection[0]))
+  {
+    oldType = type;
+    if (icon == 3)  type = tempCfg.iconbar.selectType[action_modifiers]
+                         = (event->data.selection[0] == iconbar_maxActions + 1
+                           ? 99 : event->data.selection[0]);
+    else            type = tempCfg.iconbar.adjustType[action_modifiers]
+                         = (event->data.selection[0] == iconbar_maxActions + 1
+                           ? 99 : event->data.selection[0]);
+
+    sprintf(msgTag, "conf.actn%02d", type);
+    if (Msgs_Lookup (msgTag,        iconText, 32) == FALSE)
+        Msgs_Lookup ("err.unknown", iconText, 32);
+    Icon_SetText    (prefspane, icon == 3 ? OW_icn_SELACTD : OW_icn_ADJACTD, iconText);
+    if (oldType > 3 || type > 3)  // Selectively blank the action field.
+      Icon_SetText  (prefspane, icon == 3 ? OW_icn_SELECT  : OW_icn_ADJUST,  "");
+    UpdateIconbarActions();
+    UpdateIconbarActionFlags ();
+  }
+
+  Menu_SetFlags (menu,                      0, type ==  0 ? 1 : 0, 0);
+  Menu_SetFlags (menu,                      1, type ==  1 ? 1 : 0, 0);
+  Menu_SetFlags (menu,                      2, type ==  2 ? 1 : 0, 0);
+  Menu_SetFlags (menu,                      3, type ==  3 ? 1 : 0, 0);
+  Menu_SetFlags (menu,                      4, type ==  4 ? 1 : 0, 0);
+  Menu_SetFlags (menu,                      5, type ==  5 ? 1 : 0, 0);
+  Menu_SetFlags (menu,                      6, type ==  6 ? 1 : 0, 1);  // Temporary
+  Menu_SetFlags (menu, iconbar_maxActions + 1, type == 99 ? 1 : 0, 0);
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)  // Clicked with 'Adjust'? Keep menu open
+  {
+    Menu_ShowLast ();
+
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OPMenu_Iconbar_AddShortcut
+   Purpose   : Process clicks in the 'Drag creates shortcut' menu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OPMenu_Iconbar_AddShortcut (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  int          i,
+               action_modifiers = CalcActionModifiers();
+  char        *selectedMenu     = tempCfg.iconbar.dragDir[action_modifiers];
+
+
+  for (i = 0;
+       i < maximumNumberOfShortcuts && strcmp(shortcutsArray[i].menuName, selectedMenu) != 0;
+       i++);
+
+  if (i != event->data.selection[0])
+  {
+    Icon_SetText (prefspane, OW_icn_FDRAGL, shortcutsArray[event->data.selection[0]].menuName);
+    selectedMenu = shortcutsArray[event->data.selection[0]].menuName;
+  }
+
+  for (i = 0; i < 100; i++)
+  {
+    if (shortcutsArray[i].first == NULL) break;
+    if (strcmp(shortcutsArray[i].menuName, selectedMenu) == 0)
+          Menu_SetFlags (menu, i, 1, 0);
+    else  Menu_SetFlags (menu, i, 0, 0);
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OPMenu_Iconbar_DelOpts
+   Purpose   : Process clicks in the 'Drag delete options' configuration menu.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/08/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OPMenu_Iconbar_DelOpts (event_pollblock *event, menu_ptr menu)
+{
+  mouse_block  ptr;
+  int          action_modifiers = CalcActionModifiers();
+  char         aBuffer[10] = {""};
+  char        *aString = tempCfg.iconbar.dragDir[action_modifiers];  // for convenience.
+
+
+  switch(event->data.selection[0])
+  {
+    case 0:
+      strcat(aBuffer, strstr(aString, "~C") == NULL ? "~C" :  "C");
+      strcat(aBuffer, strstr(aString, "~F") == NULL ? "F"  : "~F");
+      strcat(aBuffer, strstr(aString, "~R") == NULL ? "R"  : "~R");
+      strcat(aBuffer, strstr(aString, "~V") == NULL ? "V"  : "~V");
+      break;
+
+    case 1:
+      strcat(aBuffer, strstr(aString, "~C") == NULL ? "C"  : "~C");
+      strcat(aBuffer, strstr(aString, "~F") == NULL ? "~F" :  "F");
+      strcat(aBuffer, strstr(aString, "~R") == NULL ? "R"  : "~R");
+      strcat(aBuffer, strstr(aString, "~V") == NULL ? "V"  : "~V");
+      break;
+
+    case 2:
+      strcat(aBuffer, strstr(aString, "~C") == NULL ? "C"  : "~C");
+      strcat(aBuffer, strstr(aString, "~F") == NULL ? "F"  : "~F");
+      strcat(aBuffer, strstr(aString, "~R") == NULL ? "~R" :  "R");
+      strcat(aBuffer, strstr(aString, "~V") == NULL ? "V"  : "~V");
+      break;
+
+    case 3:
+      strcat(aBuffer, strstr(aString, "~C") == NULL ? "C"  : "~C");
+      strcat(aBuffer, strstr(aString, "~F") == NULL ? "F"  : "~F");
+      strcat(aBuffer, strstr(aString, "~R") == NULL ? "R"  : "~R");
+      strcat(aBuffer, strstr(aString, "~V") == NULL ? "~V" :  "V");
+      break;
+  }
+
+  if (tempCfg.iconbar.dragDir[action_modifiers] != NULL)
+    free(tempCfg.iconbar.dragDir[action_modifiers]);
+
+  if (strlen(aBuffer) > 0)
+  {
+    tempCfg.iconbar.dragDir[action_modifiers] = malloc(strlen(aBuffer)+1);
+    strcpy(tempCfg.iconbar.dragDir[action_modifiers], aBuffer);
+  }
+  else tempCfg.iconbar.dragDir[action_modifiers] = NULL;
+
+  UpdateIconbarActions();
+  UpdateIconbarActionFlags ();
+
+  SetDeleteOptions (menu, tempCfg.iconbar.dragDir[action_modifiers]);
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OptionPane_MenuShortcutsMenu
+   Purpose   : Process clicks in the 'Shortcuts menu' configuration menus.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 05/12/1999 - Update - Params now send menu pointer.
+   V1.0.1    : 07/11/1999 - Update - Now handles empty shortcut menus.
+   V1.0.0    : 02/10/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OptionPane_MenuShortcutsMenu (event_pollblock *event, menu_ptr menu, int icon)
+{
+  mouse_block  ptr;
+  char        *selectedMenu;
+  int          i,
+               action_modifiers = CalcActionModifiers();
+
+
+  /* Get a pointer to the config string to update. */
+  if (icon == 6) selectedMenu = tempCfg.iconbar.select[action_modifiers];
+  else           selectedMenu = tempCfg.iconbar.adjust[action_modifiers];
+
+  /* Find the associated shortcuts configuration record. */
+  for (i = 0;
+       i < maximumNumberOfShortcuts && strcmp(shortcutsArray[i].menuName, selectedMenu) != 0;
+       i++);
+
+  /* update the window if we selected something different from whats already there. */
+  if (i != event->data.selection[0])
+  {
+    if (icon == 6)
+      Icon_SetText (prefspane, OW_icn_SELECT, shortcutsArray[event->data.selection[0]].menuName);
+    else
+      Icon_SetText (prefspane, OW_icn_ADJUST, shortcutsArray[event->data.selection[0]].menuName);
+    selectedMenu = shortcutsArray[event->data.selection[0]].menuName;
+  }
+
+  for (i = 0; i < 100; i++)
+  {
+    if (shortcutsArray[i].first == NULL) break;
+    if (strcmp(shortcutsArray[i].menuName, selectedMenu) == 0)
+          Menu_SetFlags (menu, i, 1, 0);
+    else  Menu_SetFlags (menu, i, 0, 0);
+  }
+
+  Wimp_GetPointerInfo (&ptr);
+
+  if (ptr.button.data.adjust)  /* Clicked with 'Adjust'? Keep menu open */
+  {
+    Menu_ShowLast ();
+
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : click_MouseModifiers
+   Purpose   : Copies the contents of writable icons into buffers when the
+               mouse modifiers change.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void click_MouseModifiers (int action_modifiers, int keyModifier, int icon)
+{
+  if (Icon_GetSelect(prefspane, icon) == TRUE) action_modifiers -= keyModifier;
+  else                                         action_modifiers += keyModifier;
+
+  reAssignText   (OW_icn_SELECT, tempCfg.iconbar.select[action_modifiers]);
+  reAssignText   (OW_icn_ADJUST, tempCfg.iconbar.adjust[action_modifiers]);
+
+  if (tempCfg.iconbar.dragAction[action_modifiers] != 2)
+    reAssignText (OW_icn_FDRAGL, tempCfg.iconbar.dragDir[action_modifiers]);
+
+  OWFill_Iconbar ();
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : OptionPane_ClickIconbar
+   Purpose   : Process clicks upon buttons in the options pane.
+   Status    : Implementation (V1.0.9)
+   V1.0.9    : 09/08/2003 - Update - Now uses common code to handle clicks on
+                                     the mouse modifier icons.
+   V1.0.8    : 26/08/2001 - Update - Added support for iconbar drag menus.
+   V1.0.7    : 07/01/2000 - Update - Revisited after splitting the 'general'
+                                     configuration pane in 2.
+   V1.0.6    : 18/12/1999 - Bugfix - Corrected bitwise 'or' on multiple-
+                                     button action-handler routines.
+   V1.0.5    : 05/12/1999 - Update - No longer uses message passing structure.
+   V1.0.4    : 07/11/1999 - Update - Now uses shortcut menu description to
+                                     determine if a shortcuts menu exists.
+   V1.0.3    : 02/10/1999 - Update - Now correctly calls the shortcuts
+                                     selector handler
+   V1.0.2    : 26/09/1999 - Update - Added preliminary shortcuts menu support.
+   V1.0.1    : 14/09/1999 - Update - Added Select/Adjust action type handler.
+   V1.0.0    : 11/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL OptionPane_ClickIconbar (event_pollblock *event, void *reference)
+{
+  char  menuText[256],
+        menuTitle[20];
+  int   menuEntry,
+        i,
+        action_modifiers;
+
+
+  db_fn_begin();
+
+  action_modifiers = CalcActionModifiers();
+
+  if (event->data.mouse.window == prefspane)
+  {
+    switch (event->data.mouse.icon)
+    {
+      case OW_icn_ICONM:  // Iconbar Appearance selector menu
+        if (ibarAppearanceMenu == NULL)
+        {
+          ibarAppearanceMenu = Msgs_MenuNew("conf.icont", "conf.icon");
+
+          Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                       (void *)(2 | ((int)ibarAppearanceMenu << 4)));
+        }
+        Menu_SetFlags (ibarAppearanceMenu, tempCfg.iconbar.iconType, 1, 0);
+        Menu_PopUp    (ibarAppearanceMenu, prefspane, OW_icn_ICONM);
+        break;
+
+
+      case OW_icn_SELACTM:  // Select & Adjust iconbar click action selection menu
+      case OW_icn_ADJACTM:
+        if (ibarActionMenu == NULL)
+        {
+          ibarActionMenu = Msgs_MenuNew("conf.actnt", "conf.actn");
+
+          Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                       (void *)((event->data.mouse.icon == OW_icn_SELACTM ? 3 : 4) |
+                                ((int)ibarActionMenu << 4)));
+        }
+        if (event->data.mouse.icon == OW_icn_SELACTM)
+              Menu_SetFlags (ibarActionMenu, tempCfg.iconbar.selectType[action_modifiers] == 99
+                             ? iconbar_maxActions + 1 :
+                               tempCfg.iconbar.selectType[action_modifiers], 1, 0);
+        else  Menu_SetFlags (ibarActionMenu, tempCfg.iconbar.adjustType[action_modifiers] == 99
+                             ? iconbar_maxActions + 1 :
+                               tempCfg.iconbar.adjustType[action_modifiers], 1, 0);
+
+        Menu_PopUp(ibarActionMenu, prefspane, event->data.mouse.icon);
+        break;
+
+
+      case OW_icn_SELECTM:  // Select & Adjust iconbar click 'Show Shortcuts Menu'
+      case OW_icn_ADJUSTM:  // action - Shortcuts selection menu.
+        menuEntry = 0;
+        if (ibarShortcutsMenu == NULL)
+        {
+          menuText[0] = 0;
+          for (i = 0; i < maximumNumberOfShortcuts; i++)
+          {
+            if (strlen(shortcutsArray[i].menuName) != 0)
+            {
+              if (i != 0)  strcat(menuText, ",");
+
+              strcat(menuText, shortcutsArray[i].menuName);
+
+              if (event->data.mouse.icon == OW_icn_SELECTM)
+              {
+                if (strcmp(tempCfg.iconbar.select[action_modifiers],
+                           shortcutsArray[i].menuName) == 0) menuEntry=i;
+              }
+              else
+              {
+                if (strcmp(tempCfg.iconbar.adjust[action_modifiers],
+                           shortcutsArray[i].menuName) == 0) menuEntry=i;
+              }
+            }
+          }
+          Msgs_Lookup ("conf.actn05", menuTitle, 19);
+
+          ibarShortcutsMenu = Menu_New(menuTitle, menuText);
+
+
+          Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                  (void *)((event->data.mouse.icon == OW_icn_SELECTM ? 6 : 7) |
+                           ((int)ibarShortcutsMenu << 4) ));
+        }
+        if (menu != 0) Menu_SetFlags (ibarShortcutsMenu, menuEntry, 1, 0);
+        Menu_PopUp (ibarShortcutsMenu, prefspane, event->data.mouse.icon);
+        break;
+
+
+      case OW_icn_FDRAGM:  // Iconbar drag action selector menu.
+        if (ibarDragActionMenu == NULL)
+        {
+          ibarDragActionMenu = Msgs_MenuNew("conf.idrgt", "conf.idrg");
+
+          Event_Claim(event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                      (void *)(10 | ((int)ibarDragActionMenu << 4)));
+        }
+        Menu_SetFlags (ibarDragActionMenu, tempCfg.iconbar.dragAction[action_modifiers] == 99 ?
+                       iconbar_maxDragActions + 1 :
+                       tempCfg.iconbar.dragAction[action_modifiers], 1, 0);
+        Menu_PopUp    (ibarDragActionMenu, prefspane, OW_icn_FDRAGM);
+        break;
+
+
+      case OW_icn_FDRAGS:  // Iconbar drag action qualifier selection menu.
+        switch (tempCfg.iconbar.dragAction[action_modifiers])
+        {
+          case 2:  // Delete - select delete options.
+            if (ibarDeleteOptsMenu == NULL)
+            {
+              ibarDeleteOptsMenu = Msgs_MenuNew ("conf.iddelt", "conf.iddel");
+
+              Event_Claim (event_MENU, event_ANY, event_ANY, OptionPane_Menu,
+                           (void *)(11 | ((int)ibarDeleteOptsMenu << 4)));
+            }
+            SetDeleteOptions (ibarDeleteOptsMenu, tempCfg.iconbar.dragDir[action_modifiers]);
+            Menu_PopUp       (ibarDeleteOptsMenu, prefspane, OW_icn_FDRAGS);
+            break;
+
+          case 6:  // Add Shortcut - choose menu to add to.
+            menuEntry = 0;
+            if (ibarDragToMenuMenu == NULL)
+            {
+              menuText[0] = 0;
+              for (i = 0; i < maximumNumberOfShortcuts; i++)
+              {
+                if (strlen(shortcutsArray[i].menuName) != 0)
+                {
+                  if (i != 0)  strcat(menuText, ",");
+
+                  strcat(menuText, shortcutsArray[i].menuName);
+
+                  if (strcmp(tempCfg.iconbar.dragDir[action_modifiers],
+                    shortcutsArray[i].menuName) == 0) menuEntry=i;
+                }
+              }
+              Msgs_Lookup ("conf.idsct", menuTitle, 19);
+              ibarDragToMenuMenu = Menu_New(menuTitle, menuText);
+              Event_Claim (event_MENU,event_ANY,event_ANY,OptionPane_Menu,
+                           (void *)(9|((int)ibarDragToMenuMenu<<4)));
+            }
+            if (menu != 0) Menu_SetFlags(ibarDragToMenuMenu, menuEntry, 1, 0);
+            Menu_PopUp(ibarDragToMenuMenu, prefspane, event->data.mouse.icon);
+            break;
+        }
+        break;
+
+
+      case OW_icn_SHIFT:
+        click_MouseModifiers (action_modifiers, MD_iconbar_SHIFT, OW_icn_SHIFT);
+        break;
+
+
+      case OW_icn_CTRL:
+        click_MouseModifiers (action_modifiers, MD_iconbar_CTRL, OW_icn_CTRL);
+        break;
+
+
+      case OW_icn_ALT:
+        click_MouseModifiers (action_modifiers, MD_iconbar_ALT, OW_icn_ALT);
+        break;
+    }
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: $
+
+--------------------------------------------------------------------------------
+*/
+
+
+

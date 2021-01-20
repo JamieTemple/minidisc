@@ -1,0 +1,429 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/iconbar_actions.c,v $
+
+   $Revision: 1.3 $
+   $Date: 2003/10/05 16:00:07 $
+
+   Deal with mouse-clicks and files dragged to the MiniDisc iconbar icon.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "minidisc/core/iconbar.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/menu.h"
+#include "minidisc/core/shortcuts.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "DeskLib:Menu.h"
+#include "DeskLib:Url.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   External procedures.
+--------------------------------------------------------------------------------
+*/
+extern void pinboardContentsMenu(void);
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_GetModifiers
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 22/09/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static int getModifiers()
+{
+  int action_modifiers = 0;
+
+
+  if (XUtil_KeyPressed(-1)) action_modifiers += MD_iconbar_SHIFT;
+  if (XUtil_KeyPressed(-2)) action_modifiers += MD_iconbar_CTRL;
+  if (XUtil_KeyPressed(-3)) action_modifiers += MD_iconbar_ALT;
+
+
+  return action_modifiers;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_DragCopy
+   Purpose   : Perform interactive file copy to configured directory.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 08/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL IconBar_DragAction (char *directory, char *file, int action, int dragAct, int type)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  task_handle       newtask;
+  int               action_modifiers = getModifiers();
+
+
+  /* Start a filer-action task */
+  Wimp_StartTask3("Filer_Action", &newtask);
+
+  /* Do 'SendSelectedDirectory' */
+  regs.r[0] = newtask;
+  regs.r[1] = (int)directory;
+  anError   = _kernel_swi(0x060f80, &regs, &regs);
+
+  /* Do 'SendSelectedFile' */
+  regs.r[0] = newtask;
+  regs.r[1] = (int)file;
+  anError   = _kernel_swi(0x060f81, &regs, &regs);
+
+  /* Do send start opertation... */
+  regs.r[0] = newtask;
+  regs.r[1] = action;
+  regs.r[2] = 0;
+
+  switch(dragAct)
+  {
+    case 0:  /* Copy / Save */
+      regs.r[3] = (int)MDCfg->iconbar.dragDir[action_modifiers];
+      regs.r[4] = strlen(MDCfg->iconbar.dragDir[action_modifiers])+1;
+      break;
+
+    case 1:  /* SmartSave   */
+      if (type > 0xfff)  type = 0;  /* Directories & errors use the default */
+
+      if (d->smartConfig[type] == NULL)  type = 0;  /* use default if no path available. */
+
+      regs.r[3] = (int)d->smartConfig[type];
+      regs.r[4] = strlen(d->smartConfig[type])+1;
+      break;
+
+    case 3:  /* Trash       */
+      regs.r[3] = (int)"Trash:20020921";
+      regs.r[4] = 15;
+      break;
+
+    default:
+      break;
+  }
+
+  anError = _kernel_swi(0x060f82, &regs, &regs);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_DataLoad
+   Purpose   : Process files dragged to the MiniDisc iconbar icon from filer
+               windows.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL IconBar_DataLoad (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  char              expandedPath[buffer_size];
+  char              aBuffer[buffer_size];
+  char             *aParam;
+  int               i,
+                    action_modifiers = getModifiers(),
+                    msg_DataSave;
+
+
+  db_fn_begin();
+
+  /* Expand path... */
+  regs.r[0] = 37;
+  regs.r[1] = (int)event->data.message.data.dataload.filename;
+  regs.r[2] = (int)expandedPath;
+  regs.r[3] = 0;
+  regs.r[4] = (int)"$";
+  regs.r[5] = buffer_size;
+  anError   = _kernel_swi(0x020029, &regs, &regs);
+
+  /* Find last '.' in path name */
+  for (i = strlen(expandedPath); expandedPath[i] != '.'; i--);
+
+  /* Split path / leafname */
+  expandedPath[i] = 0;
+
+  /* Work out if we're doing a Copy, or a save  -  DATASAVE = 0, COPY != 0*/
+  msg_DataSave = strcmp(event->data.message.data.dataload.filename, "<Wimp$Scrap>");
+
+  switch (MDCfg->iconbar.dragAction[action_modifiers])
+  {
+    case 0:  /* Copy / Save */
+    case 1:  /* SuperSave   */
+    case 3:  /* Trash */
+      if (msg_DataSave == 0    ||
+          XUtil_KeyPressed(-1) ||
+          MDCfg->iconbar.dragAction[action_modifiers] == 3)
+
+         IconBar_DragAction (expandedPath, expandedPath+i+1, 6,
+           MDCfg->iconbar.dragAction[action_modifiers], event->data.message.data.dataload.filetype);
+
+      else
+         IconBar_DragAction (expandedPath, expandedPath+i+1, 0,
+           MDCfg->iconbar.dragAction[action_modifiers], event->data.message.data.dataload.filetype);
+
+      /* Send a 'dataload'-ack message */
+      event->data.message.header.action             = message_DATALOADACK;
+      event->data.message.header.yourref            = event->data.message.header.myref;
+      Wimp_SendMessage (event_USERMESSAGERECORDED, &(event->data.message),
+                        event->data.message.header.sender, 0);
+      break;
+
+
+    case 2:  /* Delete */
+      if (msg_DataSave == 0)  break;  /* Don't try to delete on dataloads */
+      expandedPath[i] = '.';
+      sprintf(aBuffer, "Wipe %s %s", expandedPath, MDCfg->iconbar.dragDir[action_modifiers]);
+      Wimp_StartTask(aBuffer);
+      break;
+
+
+    case 4:  /* Set CSD */
+      if (msg_DataSave == 0)  break;  /* Don't try to delete on dataloads */
+      expandedPath[i] = '.';
+      if (!XUtil_FileIsDirectory(expandedPath))  expandedPath[i] = 0;
+      sprintf(aBuffer, "dir %s", expandedPath);
+      Wimp_StartTask(aBuffer);
+      break;
+
+
+    case 5:  /* Command */
+      if (msg_DataSave == 0)  break;  /* Don't try to delete on dataloads */
+      expandedPath[i] = '.';
+
+      aParam = strstr(MDCfg->iconbar.dragDir[action_modifiers], "%0");  // Check for params.
+
+      if (aParam == NULL)  // No params, so just bolt the fsn to the end of the command
+        sprintf(aBuffer, "%s %s", MDCfg->iconbar.dragDir[action_modifiers], expandedPath);
+
+      else  // Build a command, replacing %0 with the file dragged.
+      {
+        strncpy(aBuffer, MDCfg->iconbar.dragDir[action_modifiers],
+                aParam - MDCfg->iconbar.dragDir[action_modifiers]);
+        aBuffer[aParam - MDCfg->iconbar.dragDir[action_modifiers]] = 0;
+        strcat(aBuffer, expandedPath);
+        strcat(aBuffer, aParam+2);
+      }
+      Wimp_StartTask(aBuffer);
+      break;
+
+
+    case 6:  /* Add Shortcut */
+      if (msg_DataSave == 0)  break;  /* Don't try to delete on dataloads */
+      expandedPath[i] = '.';
+      sprintf(aBuffer, "Run <MiniDisc$Dir>.bin.AddScut %s %s",
+              expandedPath, MDCfg->iconbar.dragDir[action_modifiers]);
+      Wimp_StartTask(aBuffer);
+      break;
+
+
+    default:
+      return FALSE;
+      break;
+  }
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_DataSave
+   Purpose   : Process 'DataSave' messages generated on the MiniDisc icon.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 09/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL IconBar_DataSave (event_pollblock *event, void *reference)
+{
+  message_block  message;
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  char              expandedPath[buffer_size];
+  int               i;
+
+
+  db_fn_begin();
+
+  /* Expand <Wimp$Scrap> */
+  regs.r[0] = 37;
+  regs.r[1] = (int)"<Wimp$Scrap>";
+  regs.r[2] = (int)expandedPath;
+  regs.r[3] = 0;
+  regs.r[4] = (int)"$";
+  regs.r[5] = buffer_size;
+  anError   = _kernel_swi(0x020029, &regs, &regs);
+
+  /* Find leafname, and replace it with the saveas filename */
+  for (i = strlen(expandedPath); expandedPath[i] != '.'; i--);
+  strcpy(expandedPath+i+1, event->data.message.data.datasave.leafname);
+
+  /* Rewrite <Wimp$Scrap> */
+  regs.r[0] = (int)"Wimp$Scrap";
+  regs.r[1] = (int)expandedPath;
+  regs.r[2] = strlen(expandedPath);
+  regs.r[3] = 0;
+  regs.r[4] = 4;
+  anError   = _kernel_swi(0x020024, &regs, &regs);
+
+  /* Send save ack message */
+  message.header.size                   = 60;
+  message.header.sender                 = d->task;
+  message.header.yourref                = event->data.message.header.myref;
+  message.header.action                 = message_DATASAVEACK;
+  message.data.datasaveack.window       = event->data.message.data.datasave.window;
+  message.data.datasaveack.icon         = event->data.message.data.datasave.icon;
+  message.data.datasaveack.pos.x        = event->data.message.data.datasave.pos.x;
+  message.data.datasaveack.pos.y        = event->data.message.data.datasave.pos.y;
+  message.data.datasaveack.estsize      = -1;
+  message.data.datasaveack.filetype     = event->data.message.data.datasave.filetype;
+  strcpy(message.data.datasaveack.filename, "<Wimp$Scrap>");
+  message.data.datasaveack.filename[12] = 0;
+  Wimp_SendMessage(event_USERMESSAGE, &message, event->data.message.header.sender, 0);
+
+  /* Send saved message */
+//  message.header.action                 = message_DATASAVED;
+  //Wimp_SendMessage(event_USERMESSAGE, &message, event->data.message.header.sender, 0);
+
+  db_fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_Click
+   Purpose   : Process mouse button events on the iconbar icon.
+   Status    : Implementation (V1.0.6)
+   V1.0.6    : 15/02/2000 - Update - Added code to set directory flags.
+   V1.0.5    : 10/01/2000 - Update - Now uses app.info structure to select the
+                                     iconbar icon appearance.
+   V1.0.4    : 22/12/1999 - Update - A bit of cleaning up...
+   V1.0.3    : 28/11/1999 - Update - Removed static arrays.
+   V1.0.2    : 26/09/1999 - Update - Added lots of extra handlers
+   V1.0.1    : 18/09/1999 - Update - Includes shortcuts menu support.
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     : Using Wimp_StartTask doesn't handle problems very well.
+--------------------------------------------------------------------------------
+*/
+BOOL IconBar_Click (event_pollblock *event, void *reference)
+{
+  char *actionBuffer;
+  int   action,
+        action_modifiers = getModifiers();
+
+
+  switch (event->data.mouse.button.value)
+  {
+    case button_MENU:
+      ibMenu_Show(event->data.mouse.pos.x);
+      return TRUE;
+
+    case button_SELECT:
+      actionBuffer = MDCfg->iconbar.select[action_modifiers];
+      action       = MDCfg->iconbar.selectType[action_modifiers];
+      break;
+
+    case button_ADJUST:
+      actionBuffer = MDCfg->iconbar.adjust[action_modifiers];
+      action       = MDCfg->iconbar.adjustType[action_modifiers];
+      break;
+
+    default:
+      actionBuffer = NULL;
+      action       = NULL;
+      break;
+  }
+
+  switch(action)
+  {
+    case 0:  /* Execute command */
+      Wimp_StartTask(actionBuffer);
+      break;
+
+    case 1:  /* Open file / dir / !App */
+      sprintf(MD_tmp, "Filer_Run %s", actionBuffer);
+      Wimp_StartTask(MD_tmp);
+      break;
+
+    case 2:  /* Visit web page */
+      Url_Launch(actionBuffer, NULL, NULL);
+      break;
+
+    case 3:  /* Directory path menu */
+      dirMenu_SetFlags ();
+      dirMenu_FromPath (actionBuffer, event);
+      break;
+
+    case 4:  /* Cycle icon type */
+      if (d->iconType == 4)  d->iconType = 0;
+      else                   d->iconType++;
+      IconBar_Create();
+      break;
+
+    case 5:  /* Open a Shortcuts menu */
+      dirMenu_SetFlags   ();
+      Shortcuts_OpenMenu (reference);
+      break;
+
+    case 6:  // x
+      pinboardContentsMenu();
+      break;
+  }
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: iconbar_actions.c,v $
+   Revision 1.3  2003/10/05 16:00:07  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

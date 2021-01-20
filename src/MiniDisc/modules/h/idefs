@@ -1,0 +1,54 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : idefs.h                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * ---------------------------------------------------------------------------
+extern proc_info proceduresInfo[MaxMenuSize];
+extern int       DriveMenuSize; */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Procedures                                                         *
+ * --------------------------------------------------------------------------- */
+/* menu.c
+extern void *MenuAttach_WritableSub (char *title, char *menuText, int buffSize, void *event);
+extern void  MenuBuild_DriveMenu    (void *event, int shortcut);
+extern int   MenuGet_SubMenuLevel   (void *event);
+extern char *MenuGet_TextAtLevel    (void *event, int level, int eventType);
+extern int   MenuGet_SubMenuValue   (void *event, int level);
+extern void  MenuFilerRun           (void *event, int shortcut); */
+
+/* stdhandler.h
+extern void  Error_Report           (int errornum, char *report, ...); */
+
+/* filecore.c
+extern void FileCore_ClickGeneric   (MenuEventType   mevent,
+                                     char           *fsn_desc,
+                                     int             drivenum,
+                                     void           *event,
+                                     void          (*controlMenuProc)(void *event,
+                                                                      char *fsn_desc,
+                                                                      int   drivenum));
+extern void FileCore_FollowGeneric  (MenuEventType   mevent,
+                                     char           *fsn_desc,
+                                     char           *controlMenuText,
+                                     int             drivenum,
+                                     void           *event,
+                                     void          (*controlMenuProc)(void *event,
+                                                                      char *fsn_desc,
+                                                                      int   drivenum)); */
+
+/* Desklib:Msgs.h
+extern void  Msgs_Lookup            (char *tag, char *result, int maxlength); */
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void *IDEFS_ListDrives (char *device_name, int hard, int floppy, void *mainmenu);
+extern void  IDEFS_AddTBIcons (int hard, int floppy);

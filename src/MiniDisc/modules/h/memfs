@@ -1,0 +1,35 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : memfs.h                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * ---------------------------------------------------------------------------
+extern proc_info proceduresInfo[MaxMenuSize];
+extern int       DriveMenuSize; */
+
+
+/* --------------------------------------------------------------------------- *
+ * External Procedures                                                         *
+ * --------------------------------------------------------------------------- */
+/* menu.h
+extern void  MenuBuild_DriveMenu (void *event, int shortcut); */
+
+/* filecore.h
+extern void  FileCore_Actions    (MenuEventType mevent, char *fsn_desc, int drivenum); */
+
+/* module.h
+extern int   XMod_Ensure         (char *moduleName); */
+
+/* Desklib:Msgs.h
+extern void  Msgs_Lookup         (char *tag, char *result, int maxlength); */
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void *MEMFS_ListDrives (void *mainmenu);
+void  MEMFS_AddTBIcons (void);

@@ -1,0 +1,26 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : /modules/printer.h                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_PRINTER
+#define MDH_PRINTER
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  Printer_Actions    (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+extern void *Printer_ListDrivers(void *mainmenu);
+extern void  Printer_AddTBIcons (void);
+
+
+#endif

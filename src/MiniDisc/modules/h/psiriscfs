@@ -1,0 +1,49 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : psiriscfs.h                                                     *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_PSIRISCFS
+#define MDH_PSIRISCFS
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macros                                                                      *
+ * --------------------------------------------------------------------------- */
+#define PsiRiscFS_Connect              0x0507c0
+#define PsiRiscFS_Disconnect           0x0507c1
+#define PsiRiscFS_GetMappings          0x0507c2
+#define PsiRiscFS_SetMappings          0x0507c3
+#define PsiRiscFS_Register             0x0507c4
+#define PsiRiscFS_DeRegister           0x0507c5
+#define PsiRiscFS_EnumerateFroms       0x0507c6
+#define PsiRiscFS_SetConvert           0x0507c7
+#define PsiRiscFS_GetConnection        0x0507c8
+#define PsiRiscFS_GetDrives            0x0507c9
+#define PsiRiscFS_GetConvert           0x0507ca
+#define PsiRiscFS_EnumerateExtensions  0x0507cb
+#define PsiRiscFS_DriveSize            0x0507cc
+#define PsiRiscFS_HandleFree           0x0507cd
+#define PsiRiscFS_ValidConvert         0x0507ce
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  PsiRiscFS_Click      (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+void  PsiRiscFS_Follow     (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+void  PsiRiscFS_Actions    (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+void  PsiRiscFS_DoConnect  (char *fsn_desc, int drivenum, void *event, MenuEventType mevent);
+void *PsiRiscFS_ListDrives (void *mainMenu);
+void  PsiRiscFS_StartUp    (void);
+
+
+#endif

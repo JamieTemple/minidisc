@@ -1,0 +1,242 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : idefs.c                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/idefs.h"
+#include "MiniDisc/modules/filecore.h"
+
+#include "shared/global.h"
+
+#include "MiniDisc/core/iconbar.h"
+#include "MiniDisc/core/oslib-menu.h"
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+
+#include "oslib/osfscontrol.h"
+
+
+extern void FileCore_AddTBIcon(char *spriteName, char *bigSprite, char *infoText, char *fsn, int device);
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : IDEFS_ClickControlMenu                                          *
+ * Purpose   : IDEFS specific menu 'Click' events handler.                     *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 26/05/2000 - Update - Added 'Verify' support.                   *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void IDEFS_ClickControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  switch (MenuGet_SubMenuLevel(event))
+  {
+    case 1:
+      switch(MenuGet_SubMenuValue(event, 1))
+      {
+        case 0: FileCore_OpenRoot        (fsn_desc, drivenum, NULL);     break; /* Open root    */
+        case 1:                                                          break; /* Name Disc    */
+        case 2:                                                          break; /* Mount        */
+        case 3: FileCore_Dismount        (fsn_desc, drivenum);           break; /* Dismount     */
+        case 4:                                                          break; /* Share        */
+        case 5:                                                          break; /* Unlock       */
+        case 6:                                                          break; /* Lock         */
+        case 7: FileCore_AppRun          (fsn_desc, drivenum, TRUE);     break; /* Verify       */
+        case 8: FileCore_ShowFree        (fsn_desc, drivenum);           break; /* Free         */
+        case 9: FileCore_MenuHideRestore (fsn_desc, drivenum, event, 9); break; /* Hide/Restore */
+      }
+      break;
+
+    case 2:
+      switch (MenuGet_SubMenuValue(event, 2))
+      {
+        case 0:  /* Name Disc */
+          FileCore_RenameDisc (fsn_desc, drivenum, MenuGet_TextAtLevel(event, 2, 0));
+          break;
+
+        default: /* !!!!!!!! */
+          break;
+      }
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : IDEFS_FollowControlMenu                                         *
+ * Purpose   : IDEFS specific menu warnings handler.                           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void IDEFS_FollowControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  switch(MenuGet_SubMenuValue(event, 1))
+  {
+    case 0:  dirMenu_FromDrive      (event, FALSE);               break;  /* Path      */
+    case 1:  FileCore_BuildNameDisc (fsn_desc, drivenum, event);  break;  /* Name disc */
+    case 2:                                                       break;  /* Mount     */
+    case 4:                                                       break;  /* Share     */
+    case 5:                                                       break;  /* Unlock    */
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : IDEFS_Actions                                                   *
+ * Purpose   : IDEFS specific handler dispatching.                             *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void IDEFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case click:
+      FileCore_ClickGeneric (mevent, fsn_desc,          drivenum, event, IDEFS_ClickControlMenu);
+      break;
+    case follow:
+      FileCore_FollowGeneric(mevent, fsn_desc, "idefs", drivenum, event, IDEFS_FollowControlMenu);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : IDEFS_ListDrives                                                *
+ * Purpose   : Add main menu entries for IDEFS drives.                         *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 09/10/1999 - No longer shows drives 0-3 as removable.           *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *IDEFS_ListDrives (char *device_name, int hard, int floppy, void *mainmenu)
+{
+  char  buffer[buffer_size],
+        filePath[12],
+        discName[27];
+  bool  showEmpty;
+
+
+  if (MDCfg->filecore.hideIDEFS == 0) showEmpty = FALSE;
+  else                                showEmpty = TRUE;
+
+  /* Hard discs */
+  for (; hard > 0; --hard)
+  {
+    sprintf(filePath, "%s:%d.$", device_name, hard + 3);
+    discName[0] = 0;
+    if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+    {
+      DriveMenuSize++;
+      discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+      mainmenu = FileCore_MenuExtend(mainmenu, discName, "smd_hd", "IDEFS:", hard + 3);
+      proceduresInfo[DriveMenuSize].proc_ptr = IDEFS_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = hard + 3;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "IDEFS:");
+    }
+    else if (showEmpty) /* Could not read the disc label */
+    {
+      DriveMenuSize++;
+      if (MDCfg->filecore.greyEmpty == 0)  sprintf(buffer, "~%s:%d", device_name, hard + 3);
+      else                                 sprintf(buffer, "%s:%d", device_name, hard + 3);
+      mainmenu = FileCore_MenuExtend(mainmenu, buffer, "smd_rd", "IDEFS:", hard + 3);
+      proceduresInfo[DriveMenuSize].proc_ptr = IDEFS_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = hard + 3;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "IDEFS:");
+    }
+  }
+
+
+  /* Floppy Discs */
+  for (; floppy > 0; floppy--)
+  {
+    sprintf(filePath, "%s:%d.$", device_name, floppy - 1);
+    discName[0] = 0;
+    if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+    {
+      DriveMenuSize++;
+      discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+      mainmenu = FileCore_MenuExtend(mainmenu, discName, "smd_hd", "IDEFS:", floppy - 1);
+      proceduresInfo[DriveMenuSize].proc_ptr = IDEFS_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = floppy - 1;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "IDEFS:");
+    }
+    else if (showEmpty)  /* Could not read the disc label */
+    {
+      DriveMenuSize++;
+      if (MDCfg->filecore.greyEmpty == 0)  sprintf(buffer, "~%s:%d", device_name, floppy - 1);
+      else                                 sprintf(buffer, "%s:%d", device_name, floppy - 1);
+      mainmenu = FileCore_MenuExtend(mainmenu, buffer, "smd_rd", "IDEFS:", floppy - 1);
+      proceduresInfo[DriveMenuSize].proc_ptr = IDEFS_Actions;
+      proceduresInfo[DriveMenuSize].drivenum = floppy - 1;
+      strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "IDEFS:");
+    }
+  }
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : IDEFS_AddTBIcons                                                *
+ * Purpose   : Add toolbar entries for IDEFS drives.                           *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 28/08/2003 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void IDEFS_AddTBIcons(int hard, int floppy)
+{
+  char  buffer[buffer_size],
+        filePath[12],
+        discName[27];
+  bool  showEmpty;
+
+
+  if (MDCfg->filecore.hideIDEFS == 0) showEmpty = FALSE;
+  else                                showEmpty = TRUE;
+
+  /* Hard discs */
+  for (; hard > 0; --hard)
+  {
+    sprintf(filePath, "IDEFS::%d.$", hard + 3);
+    discName[0] = 0;
+    if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+    {
+      discName[strlen(discName) - 2] = 0;                           // Remove the '.$'
+      FileCore_AddTBIcon("md_hd", "harddisc", discName, "IDEFS:", hard + 3);
+    }
+
+    else if (showEmpty) /* Could not read the disc label */
+    {
+      sprintf(buffer, "IDEFS::%d", hard + 3);
+      FileCore_AddTBIcon("md_hd", "harddisc", buffer, "IDEFS:", hard + 3);
+    }
+  }
+
+
+  /* Floppy Discs */
+  for (; floppy > 0; floppy--)
+  {
+    sprintf(filePath, "IDEFS::%d.$", floppy - 1);
+    discName[0] = 0;
+    if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+    {
+      discName[strlen(discName) - 2] = 0;                           // Remove the '.$'
+      FileCore_AddTBIcon("md_hd", "harddisc", discName, "IDEFS:", floppy - 1);
+    }
+
+    else if (showEmpty)  /* Could not read the disc label */
+    {
+      sprintf(buffer, "IDEFS::%d", floppy - 1);
+      FileCore_AddTBIcon("md_hd", "harddisc", buffer, "IDEFS:", floppy - 1);
+    }
+  }
+}

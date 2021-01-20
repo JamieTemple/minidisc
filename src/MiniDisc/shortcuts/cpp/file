@@ -1,0 +1,153 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/shortcuts/file.c                                       *
+ * Purpose   : 'File' shortcuts specific code.                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/shortcuts/file.h"
+#include "minidisc/shortcuts/shortcuts.h"
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Mem.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+void Shortcut_FileAddTBIcon (shortcuts_menu *current, int index, char *menuName)
+{
+  int             shrinkSprite = 0;
+  char            spriteBuffer[32], bigSprite[32];
+  char           *pathName,
+                 *label;
+
+
+  if (current->entry == path)
+  {
+    pathName = current->shortcut.path.pathName;
+    label    = current->shortcut.path.label;
+  }
+  else
+  {
+    pathName = current->shortcut.file.fileName;
+    label    = current->shortcut.file.label;
+  }
+
+  if (File_IsDirectory(pathName))                      // DIRECTORY
+  {
+    shrinkSprite = XUtil_GetDirSprite(XUtil_GetLeafName(pathName), spriteBuffer, "");
+    XUtil_GetBigDirSprite(XUtil_GetLeafName(pathName), bigSprite, "");
+  }
+
+  else if (File_Exists(pathName))                      // REGULAR FILE
+  {
+    shrinkSprite = XUtil_GetFileSprite(pathName, spriteBuffer, "", 0);
+    strcpy(bigSprite, spriteBuffer); // !!!!!!!!!!!!!!!
+  }
+
+  else                                                 // Could not locate the file
+  {
+    strcpy(spriteBuffer, "small_xxx");
+    strcpy(bigSprite,    "file_xxx");
+  }
+
+  Shortcuts_AddTBIcon (spriteBuffer, shrinkSprite, bigSprite, label, menuName, index);
+}
+
+
+void Shortcut_FileDispose (shortcuts_menu **item)
+{
+  free ((*item)->shortcut.file.label);
+  free ((*item)->shortcut.file.fileName);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_FileAction                                            *
+ * Purpose   : Simply 'Filer_Run' the file from the menu.                      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/07/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_FileAction(shortcuts_menu *current, event_pollblock *event, int callType)
+{
+  db->fn_begin();
+
+  if (callType == 2)
+  {
+    dirMenu_SetFlags ();
+    dirMenu_FromPath (current->shortcut.file.fileName, event);
+  }
+  else
+  {
+    sprintf(MD_tmp, "Filer_Run %s", current->shortcut.file.fileName);
+
+    db->tracef(1, "file : %s", MD_tmp);
+
+    Wimp_StartTask(MD_tmp);
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_AddFile                                               *
+ * Purpose   : Add a file to the shortcuts menu.                               *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 11/12/1999 - Update - Now supports rule-offs.                   *
+ * V1.0.2    : 30/10/1999 - Now uses generic icon calculation code.            *
+ * V1.0.1    : 22/09/1999 - Propper sprites now displayed                      *
+ * V1.0.0    : 18/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_AddFile(menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry)
+{
+  menu_item *menuItem = MenuGet_Item (aMenu, entryNumber);
+  BOOL       shrunk,
+             shaded;
+
+
+  XUtil_CalculateFileIcon (&menuEntry->shortcut.file,
+                           &menuItem->icondata.indirecttext.buffer,
+                           &menuItem->icondata.indirecttext.validstring,
+                           &menuItem->icondata.indirecttext.bufflen,
+                           &shrunk,
+                           &shaded);
+
+  menuItem->iconflags.value           = 0x7000113;
+  menuItem->iconflags.data.halfsize   = shrunk;
+  menuItem->iconflags.data.shaded     = shaded;
+  menuItem->menuflags.data.ticked     = 0;
+  menuItem->menuflags.data.openshaded = 0;
+  menuItem->menuflags.data.shaded     = menuItem->iconflags.data.shaded;
+  menuItem->menuflags.data.writable   = 0;
+  menuItem->menuflags.data.dotted     = menuEntry->ruledOff;
+  menuItem->menuflags.data.notifysub  = 0;
+  menuItem->submenu.value             = -1;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+

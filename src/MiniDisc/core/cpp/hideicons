@@ -1,0 +1,364 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/hideicons.cpp,v $
+
+   $Revision: 1.3 $
+   $Date: 2003/10/05 16:00:03 $
+
+   Code to remove and restore Filer iconbar icons.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/core/hideicons.h"
+
+#include "shared/utilities.h"
+
+#include "oslib/filer.h"
+#include "oslib/osmodule.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Assembler functions.
+--------------------------------------------------------------------------------
+*/
+extern void IconBar_RestoreIcon2 (char **moduleName, int taskHandle);
+extern void IconBar_HideIcon2    (char **moduleName);
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_FilerQuit
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 22/09/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_FilerQuit (char **moduleName)
+{
+  IconBar_HideIcon2(moduleName);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_RestoreIcon
+   Purpose   : Restore the filer icons for a particular module.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 23/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_RestoreIcon (char *moduleName)
+{
+  IconBar_RestoreIcon2 (&moduleName, XUtil_TaskGetHandle ("Filer"));
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_HideIcon
+   Purpose   : Hide the filer icons for a particular module.
+   Status    : Implementation (V1.1.4)
+   V1.1.4    : 03/11/2001 - Update - Added support for Select version of CDFS
+   V1.1.3    : 05/08/2000 - Update - Restored code following solution to the
+                                     long-running IDEFiler problem.
+   V1.1.2    : 22/07/2000 - Update - Added 'IDEFiler' support.
+   V1.1.1    : 15/07/2000 - Update - Added support fot 'IDEFSVersion'.
+   V1.1.0    : 29/01/2000 - ReCode - Now uses assembler code to send #&4f
+                                     service call straight to the relevant
+                                     module.
+   V1.0.0    : 23/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_HideIcon (char *moduleName)
+{
+  BOOL  ignoreMe = FALSE;
+  int   i;
+
+
+  db->fn_begin();
+
+  for (i = 0; i < 16; i++)  /* Check ignores list */
+    if (strncmp(d->ignoreFSNs[i], moduleName, strlen(d->ignoreFSNs[i])) == 0 &&
+        d->ignoreFSNs[i][0] != 0) ignoreMe = TRUE;
+
+  if (!ignoreMe)   /* If the module is not in our list of filers to ignore.*/
+  {
+    db->tracef (1, "About to hide %s", moduleName);
+
+         if (strcmp(moduleName, "MemFSFiler") == 0)   XUtil_TaskSendQuit ("MemFS Filer");
+    else if (strcmp(moduleName, "CDFSFiler")  == 0)
+         {
+           // Note: I should do something about OS versions < 3.50 here as well.
+           if (d->OSVersion > 404)                    XUtil_TaskSendQuit ("CDFS Filer");
+           else                                       IconBar_HideIcon2  (&moduleName);
+         }
+    else if (strcmp(moduleName, "CDROMFSFiler") == 0) XUtil_TaskSendQuit ("CDROMFS Filer");
+    else if (strcmp(moduleName, "RAMFSFiler") == 0)   XUtil_ModKill      ("RAMFSFiler");
+    else                                              IconBar_HideIcon2  (&moduleName);
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_HideIcons
+   Purpose   : Remove icons from the iconbar (Config permitting)
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 05/08/2000 - Bugfix - Finally resolved IDEFiler bug!!!!
+   V1.0.3    : 23/01/2000 - Update - Shifted actual icon removal code out to
+                                     make custom handling neater.
+   V1.0.2    : 28/11/1999 - Update - Removed static arrays.
+   V1.0.1    : 09/11/1999 - Update - No longer removes RMFSFiler. (This will
+                            be reinstated when we have support for RMFS)
+   V1.0.0    : 10/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_HideIcons (void)
+{
+  char *module, *modName;
+  int   mod      = 0,
+        instance = 0,
+        len,
+        pw;
+
+
+  db->fn_begin();
+
+  db->trace (100, "Hiding iconbar icons...");
+
+  /* Special cases... */
+  if (XUtil_ModEnsure("CDFSFiler")     && MDCfg->cdfs.removeIcons      == 0)
+    IconBar_HideIcon ("CDFSFiler");
+
+  if (XUtil_ModEnsure("CDROMFS")       && MDCfg->cdfs.removeIcons      == 0)
+    IconBar_HideIcon ("CDROMFSFiler");
+
+  if (XUtil_ModEnsure("ResourceFiler") && MDCfg->image.resFSremoveIcon == 0)
+    IconBar_HideIcon ("ResourceFiler");
+
+  if (XUtil_ModEnsure("MemFSFiler")    && MDCfg->image.memFSremoveIcon == 0)
+    IconBar_HideIcon ("MemFSFiler");
+
+  if (XUtil_ModEnsure("ShareFS")       && MDCfg->network.shareNoIcons == 0)
+    XUtil_TaskSendQuit("ShareFS");
+
+  if (MDCfg->filecore.removeIcons == 0)  /* Kill off other filer modules */
+  {
+    while(XUtil_ModEnumerate (&mod, &instance, &module, &pw) == NULL)
+    {
+      modName = (char *)(module+*((long *)(module+16)));
+      len     = strlen(modName);
+      if ((len > 5) && (strncmp(modName+len-5, "Filer", 5) == 0))
+      {
+        /* Ignore modules already dealt with elsewhere */
+             if (strcmp(modName, "CDFSFiler")     == 0)  len = len;
+        else if (strcmp(modName, "CDROMFSFiler")  == 0)  len = len;
+        else if (strcmp(modName, "MemFSFiler")    == 0)  len = len;
+        else if (strcmp(modName, "ResourceFiler") == 0)  len = len;
+
+        /* Catch-all (REINITIALISE the filers) */
+        else IconBar_HideIcon (modName);
+      }
+    }
+  }
+
+  if (MDCfg->printer.QuitPM == 0)         XUtil_TaskSendQuit  ("Printer Manager");
+  if (MDCfg->network.armTCPNoIcons == 0)  IconBar_HideAppIcon ("ArmTCP");
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_RestoreAppIcon
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/09/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_RestoreAppIcon (char *TaskName)
+{
+  _kernel_swi_regs  regs;
+  int               iconNumber;
+
+
+  db->fn_begin();
+
+  iconNumber = XUtil_FindIcon(TaskName);
+
+  if (iconNumber != 0)
+  {
+    regs.r[0] = -1;
+    regs.r[1] = iconNumber;
+    regs.r[2] = 98;    // NOTE: These y coordinates are for ArmTCP ONLY!!!
+    regs.r[3] = -16;
+    regs.r[4] = 214;   //       (ATM, this is only used for ArmTCP anyhow!)
+    regs.r[5] = 88;
+
+    (void) _kernel_swi(0x0400fc, &regs, &regs);  /* Wimp_ResizeIcon */
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_RestoreIcons
+   Purpose   :
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 01/03/2002 - Update - Now only restores CDROMFS if it's not
+                                     already running.
+   V1.0.0    : 13/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_RestoreIcons (void)
+{
+  wimp_t    handle,
+            newHandle;
+  char     *command;
+  int       unclaimed;
+
+
+  db->fn_begin();
+
+  XUtil_ModReinit("RAMFSFiler");
+
+  handle = (wimp_t) XUtil_TaskGetHandle ("Filer");    // Find the task handle of the Filer ...
+
+  if (handle != NULL)                                 // then restart the dormant filer modules
+  {
+    do
+    {
+      xservice_start_filer (handle, &command, &unclaimed);
+
+      if (unclaimed == 0)
+      {
+        db->tracef (10, "Reinit command : %s", command);
+
+        xwimp_start_task(command, &newHandle);
+      }
+
+    } while (unclaimed == 0);
+
+    xservice_started_filer();
+  }
+
+  if (XUtil_ModEnsure("CDROMFS") && XUtil_TaskGetHandle("CDROMFS Filer") == NULL)
+                                   wimp_start_task("Filer_Run <CDROMFS$Dir>.!Run");
+
+  if (XUtil_ModEnsure("MemFS"))    wimp_start_task("Filer_Run <Memphis$Dir>.!Run");
+
+  if (XUtil_ModEnsure("ShareFS") && MDCfg->network.shareNoIcons == 0)
+    wimp_start_task("Desktop_ShareFSFiler");
+
+  if (MDCfg->network.armTCPNoIcons == 0)
+  {
+    IconBar_RestoreAppIcon ("ArmTCP");
+    XUtil_RefreshIB();
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : IconBar_HideAppIcon
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 20/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void IconBar_HideAppIcon (char *TaskName)
+{
+  _kernel_swi_regs  regs;
+  int               iconNumber;
+
+
+  db->fn_begin();
+
+  iconNumber = XUtil_FindIcon(TaskName);
+
+  if (iconNumber != 0)
+  {
+    regs.r[0] = -1;
+    regs.r[1] = iconNumber;
+    regs.r[2] = 0;
+    regs.r[3] = 0;
+    regs.r[4] = 0;
+    regs.r[5] = -500;
+
+    (void) _kernel_swi(0x0600fc, &regs, &regs);  // XWimp_ResizeIcon
+  }
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: hideicons.cpp,v $
+   Revision 1.3  2003/10/05 16:00:03  jtemple
+   General check-in for release testing.
+
+   Revision 1.2  2003/09/14 11:14:20  jtemple
+   Comments tidied.
+   Fixed RAMFSFiler icon removal / restoring code.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

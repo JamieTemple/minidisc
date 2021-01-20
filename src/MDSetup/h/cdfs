@@ -1,0 +1,42 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : config/cdfs.h                                                   *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_CDFS
+#define MDH_CFG_CDFS
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Event.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_cdf_xxxx                                                     *
+ * Purpose   : CDFS options pane icon numbers.                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 30/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_cdf_INCLUDE  2
+#define OW_cdf_NOICONS  3
+#define OW_cdf_AUTODET  4
+#define OW_cdf_USEEXT   6
+#define OW_cdf_PLAYER   7
+#define OW_cdf_INTBAR   8
+#define OW_cdf_CDROMFS 10
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  OWFill_CDFS          (void);
+extern void  OWClose_CDFS         (void);
+extern BOOL  OptionPane_ClickCDFS (event_pollblock *event, void *reference);
+
+
+#endif

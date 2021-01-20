@@ -1,0 +1,994 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/dirmenu.cpp,v $
+
+   $Revision: 1.4 $
+   $Date: 2003/10/05 16:00:01 $
+
+   Directory path menus creation and manipulation code.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/core/menu.h"
+#include "minidisc/core/shortcuts.h"
+
+#include "MDSetup/main.h"
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Event.h"
+#include "DeskLib:EventMsg.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Screen.h"
+#include "DeskLib:Str.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables
+--------------------------------------------------------------------------------
+*/
+static int   longestName;
+static BOOL  MenuIsMessy;
+static BOOL  menuUp;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuGet_ShortcutPath
+   Purpose   : Calculate the start of a directory path from a shortcuts menu.
+   Status    : Implementation (V1.0.3)
+   V1.0.3    : 27/02/2000 - Bugfix - 'UpdateItem' check also made in 'menu'
+                                     scanning.
+   V1.0.2    : 03/01/2000 - Bugfix - Now updates the current menu item when a
+                                     'path' entry is found from a 'root'
+                                     shortcuts menu so that the title can be
+                                     set correctly.
+   V1.0.1    : 24/12/1999 - Bugfix - Now recieves pointers to menu and item so
+                                     that they can be updated and returned.
+   V1.0.0    : 13/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static int MenuGet_ShortcutPath(int startPoint, int *selection, shortcuts_menu *current,
+                                char *filePath, menu_ptr *subMenu, menu_item **menuItem)
+{
+  BOOL updateItem = startPoint == 0 ? TRUE : FALSE;
+  int  j;
+
+
+  db->fn_begin();
+
+  db->tracef(1, "Start point was %d", startPoint);
+
+  while (selection[startPoint] != -1)
+  {
+    for (j = 0; j != selection[startPoint]; j++) current = current->next;
+
+    if (current->entry == path)
+    {
+      db->tracef(1, "Found a directry path menu entry in a submenu for %s", current->shortcut.path.pathName);
+
+      strcpy(filePath, current->shortcut.path.pathName);
+      strcat(filePath, ".");
+
+      if (updateItem) *menuItem = MenuGet_Item(*subMenu, selection[startPoint]);
+
+      break;  /* Leave while loop */
+    }
+
+    else if (current->entry == menu)
+    {
+      db->tracef(1, "Found a menu entry called %s", current->shortcut.menu.intMenuName);
+
+      for (j = 0; strcmp(current->shortcut.menu.intMenuName, shortcutsArray[j].menuName) != 0; j++);
+
+      db->trace(1, "Setting 'Current' to the top of this new menu ...");
+
+      current   = shortcutsArray[j].first;
+      if (updateItem) *menuItem = MenuGet_Item(*subMenu, selection[startPoint]);
+      *subMenu  = MenuGet_Item(*subMenu, selection[startPoint])->submenu.menu;
+//      *subMenu  = (*menuItem)->submenu.menu;
+    }
+
+    startPoint++;
+  }
+
+  db->fn_end();
+
+
+  return startPoint;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuGet_FilePath0
+   Purpose   : Calculate the start-point for a directory path menu.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 24/12/1999 - Bugfix - Now recieves pointers to menu and item so
+                            that they can be updated and returned.
+   V1.0.0    : 18/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static int MenuGet_FilePath0 (int i, int *selection, char *filePath, BOOL *isShortcuts,
+                              menu_item **item, menu_ptr *subMenu)
+{
+  int   j, k;
+  char *oldText;
+
+
+  db->fn_begin();
+
+  switch(d->currentMenu.type)
+  {
+    case MD_menu_shortcut:
+      i = MenuGet_ShortcutPath (0, selection, d->currentMenu.context.shortcut->first, filePath,
+                                subMenu, item);
+      *isShortcuts = FALSE;  /* Ensure sub-menu level 1 get's processed propperly */
+      break;
+
+    case MD_menu_main:
+      /* Shortcuts (from MiniDisc main menu) path builder: */
+      if (strcmp((*item)->icondata.indirecttext.buffer, "Shortcuts") == 0)
+      {
+        i = MenuGet_ShortcutPath (1, selection, shortcutsArray[0].first, filePath, subMenu, item)
+           - 1;
+        *isShortcuts = TRUE;
+      }
+
+      /* ResourceFS-specific path builder: */
+      else if (strcmp((*item)->icondata.indirecttext.buffer, "Resources") == 0)
+        strcpy (filePath, "Resources:$.");
+
+      /* We need to put something in here to cope with ShareFS. */
+      else if (strncmp((*item)->icondata.indirecttext.validstring, "smd_net",   7) == 0 ||
+               strncmp((*item)->icondata.indirecttext.validstring, "smd_share", 9) == 0 )
+        sprintf(filePath, "Share::%s.$.", (*item)->icondata.indirecttext.buffer);
+
+      // Default main menu action (append menu item to path string)
+      else
+      {
+        oldText = (*item)->icondata.indirecttext.buffer;
+        for (j = 0; j < 16; j++)
+        {
+          if (MDCfg->aliases[j].fsn == NULL)  break;  // End of the line.
+
+          if (strcmp(MDCfg->aliases[j].alias, oldText) == 0)
+          {
+            oldText = MDCfg->aliases[j].fsn;
+            break;
+          }
+        }
+        sprintf (filePath, "%s.$.", oldText);
+      }
+      break;
+
+    case MD_menu_directory:
+      if (menuUp)
+      {
+        for (k = j = 0; d->currentMenu.context.dirPath[j] != 0; j++)
+          if (d->currentMenu.context.dirPath[j] == '.') k++;  /* Count number of 'up' menu items */
+
+        if (selection[0] >= k)
+          /* The item clicked on was a 'normal' (down) menu item, so treat it as usual. */
+          sprintf (filePath, "%s.%s%s.", d->currentMenu.context.dirPath,
+                   ((*item)->menuflags.data.dummy1 ? "!" : ""),
+                   (*item)->icondata.indirecttext.buffer);
+        else
+        {
+          /* The item clicked on was in the 'up' part */
+          memset(filePath, 0, 256);  /* RO4 !!! */
+          for (k = j = 0; k < selection[0] + 2 && d->currentMenu.context.dirPath[j] != 0; j++)
+            if (d->currentMenu.context.dirPath[j] == '.') k++;
+          strncpy(filePath, d->currentMenu.context.dirPath, j);
+          if (d->currentMenu.context.dirPath[j] == 0)  filePath[j] = '.';
+        }
+      }
+      else
+        /* Normal directory menu, so just bolt-on the menu entry to the path... */
+        sprintf (filePath, "%s.%s%s.", d->currentMenu.context.dirPath,
+                 ((*item)->menuflags.data.dummy1 ? "!" : ""),
+                 (*item)->icondata.indirecttext.buffer);
+      break;
+
+    default:
+      break;
+  }
+
+  db->fn_end();
+
+
+  return i;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuGet_FilePath
+   Purpose   : Build a complete file path name for a menu item that has been
+               clicked upon.
+   Status    : Implementation (V2.0.1)
+   V2.0.1    : 24/12/1999 - Bugfix - Now sends pointers for menu and item to
+                            level 0 code so that they can be updated.
+   V2.0.0    : 18/12/1999 - Recode - Split out menu 'level-1' handlers into a
+                            separate routine, as things were starting to get a
+                            bit hairy in here!
+   V1.2.1    : 16/12/1999 - Update - Removed 'shortcut' paramater, as it's no-
+                            longer required.
+   V1.2.0    : 13/12/1999 - Update - Now uses 'MenuGet_ShortcutsPath' code.
+   V1.1.0    : 25/09/1999 - Update - Now works for 'Shortcuts' menus as well!
+   V1.0.2    : 11/09/1999 - Bugfix - Now works for CDFS as well!
+   V1.0.1    : 03/09/1999 - Bugfix - Resources:$.Resources now appears where
+                            it should on the menus.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : If 'title' is not NULL, then we also set it to hold the
+               leafname of the menu entry.
+--------------------------------------------------------------------------------
+*/
+static menu_item *MenuGet_FilePath(int *selection, char *filePath, char **title)
+{
+  BOOL            isShortcuts = FALSE;
+  menu_ptr        subMenu     = (menu_ptr)d->currentMenu.menuptr/*mainmenu*/;
+  menu_item      *menuItem;
+  int             i;
+
+
+  db->fn_begin();
+
+  filePath[0] = 0;
+
+  for (i = 0; selection[i] != -1; i++)
+  {
+    menuItem = MenuGet_Item(subMenu, selection[i]);
+    if (menuItem->iconflags.data.indirected == 1)
+    {
+      switch(i)
+      {
+        case 0:  /* Menu level 0 (Primary IconBar Menu) */
+          /* Note: This will also traverse any other shortcuts menus until a valid path start-
+                   point is located. */
+          i = MenuGet_FilePath0(i, selection, filePath, &isShortcuts, &menuItem, &subMenu);
+          break;
+
+         case 1:
+           if ((strncmp(filePath, menuItem->icondata.indirecttext.buffer, strlen(filePath)-4) != 0
+             || strcmp("Resources:$.", filePath) == 0
+             || d->currentMenu.type == MD_menu_directory)
+             && !isShortcuts)
+           {
+             if (menuItem->menuflags.data.dummy1)  strcat(filePath, "!");
+             strcat(filePath, menuItem->icondata.indirecttext.buffer);
+             strcat(filePath, ".");
+           }
+           isShortcuts = FALSE;  /* Ensure that we only skip ONE menu level */
+           break;
+
+         default:  /* Menu level 2+ */
+           if (!isShortcuts)
+           {
+             if (menuItem->menuflags.data.dummy1)  strcat(filePath, "!");
+             strcat(filePath, menuItem->icondata.indirecttext.buffer);
+             strcat(filePath, ".");
+           }
+           isShortcuts = FALSE;  /* Ensure that we only skip ONE menu level */
+           break;
+      }
+      if (title != NULL) *title = menuItem->icondata.indirecttext.buffer;
+    }
+    subMenu = menuItem->submenu.menu;
+  }
+  filePath[strlen(filePath)-1] = 0;
+
+  db->fn_end();
+
+
+  return menuItem;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : dirMenu_Click
+   Purpose   : Find the name of the file clicked upon in the menu, then
+               Filer_Run it.
+   Status    : Implementation (V1.0.4)
+   V1.0.4    : 10/03/2002 - Update - No longer need to check for hidden '!'s
+                                     as they are now stuck back on by the Menu
+                                     _FilePath(0) code.
+   V1.0.3    : 01/03/2000 - bugfix - No longer tries to remove the menu.
+   V1.0.2    : 15/02/2000 - Update - Added path menu options support.
+   V1.0.1    : 16/12/1999 - Update - Removed 'shortcut' paramater as it's
+                                     no-longer required.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void dirMenu_Click (void *event)
+{
+  char  filePath[256],  /* RO4 !!!! */
+        aString[256];
+
+
+  db->fn_begin();
+
+  MenuGet_FilePath(((event_pollblock *)event)->data.selection, filePath, NULL);
+
+  sprintf(aString, "Filer_Run %s", filePath);
+
+  db->tracef(1, "About to execute : %s", aString);
+
+  Wimp_StartTask(aString);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_Extend
+   Purpose   : Append directory entries to a path submenu.
+   Status    : Implementation (V1.0.2
+   V1.0.2    : 01/05/2004 - Bugfix - Now correctly interprets Menu_Extend.
+   V1.0.1    : 10/03/2002 - Update - Added a parameter to determine if we are
+                            going to hide the '!' - stored in MenuFlags.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : For internal use only in building path menus.
+--------------------------------------------------------------------------------
+*/
+menu_ptr MenuBuild_Extend(menu_ptr  aMenu,
+                          char     *menuTitle,
+                          char     *MenuText,
+                          BOOL      hasSubMenu,
+                          BOOL      makeSmall,
+                          int       index,
+                          char     *ValidString,
+                          BOOL      hidePling)
+{
+  menu_item *menuItem;
+  menu_ptr   newMenu = NULL;
+
+
+  db->fn_begin();
+
+  db->tracef(100, "Inserting '%s' into the menu (validation string : %s)", MenuText, ValidString);
+
+  if (aMenu == NULL) newMenu = Menu_New    (menuTitle, hasSubMenu ? ">MenuError" : "MenuError");
+  else               newMenu = Menu_Extend (aMenu,     hasSubMenu ? ">MenuError" : "MenuError");
+
+  if (newMenu != NULL)
+  {
+    menuItem                                    = MenuGet_Item(newMenu, index);
+    menuItem->icondata.indirecttext.bufflen     = strlen(MenuText);
+    menuItem->icondata.indirecttext.buffer      = strdup(MenuText);
+    menuItem->icondata.indirecttext.validstring = strdup(ValidString);
+    menuItem->iconflags.value                   = 0x07000113;
+    menuItem->iconflags.data.halfsize           = (makeSmall)  ? 1 : 0;
+    menuItem->menuflags.data.dummy1             = hidePling;
+    menuItem->menuflags.data.notifysub          = (hasSubMenu) ? 1 : 0;
+    menuItem->menuflags.data.writable           = 0;
+
+    longestName = (menuItem->icondata.indirecttext.bufflen > longestName)
+                ? menuItem->icondata.indirecttext.bufflen
+                : longestName;  // Calculate maximum menu width
+
+    if (hidePling)  db->tracef(50, "Not showing ! for %s", MenuText);
+  }
+
+  db->fn_end();
+
+
+  return newMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_File
+   Purpose   : Create a menu entry for a file, then add it on to the end of
+               the menu passed in.
+   Status    : Implementation (V1.1.1)
+   V1.1.1    : 10/03/2002 - Update - Changed interface to MenuBuild_Extend.
+   V1.1.0    : 12/01/2001 - Update - Now uses generic sprite code.
+   V1.0.1    : 27/08/2001 - Bugfix - Files without a sprite were getting a
+                                     shrunken 'small_xxx' - fixed.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : For internal use only in building path menus.
+--------------------------------------------------------------------------------
+*/
+menu_ptr MenuBuild_File(char *filename, char *title, menu_ptr subMenu, int index,
+                        int   fileType, char *filePath)
+{
+  char  aString[256];
+  char *fullName;
+  BOOL  shrinkSprite;
+
+
+  db->fn_begin();
+
+  fullName = malloc(strlen(filename) + strlen(filePath) + 2);
+  sprintf     (fullName, "%s.%s", filePath, filename);
+
+  shrinkSprite = XUtil_GetFileSprite(fullName, aString, "S", 0);
+  subMenu      = MenuBuild_Extend   (subMenu, title, filename, FALSE, shrinkSprite, index,
+                                     aString, FALSE);
+
+  free(fullName);
+
+  UNUSED(fileType);
+
+  db->fn_end();
+
+
+  return subMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_Dir
+   Purpose   : Create a menu entry for a directory, then add it on to the end
+               of the menu passed in.
+   Status    : Implementation (V1.0.5)
+   V1.0.5    : 10/03/2002 - Update - Changed interface to MenuBuild_Extend.
+   V1.0.4    : 14/01/2002 - Update - Now uses generic sprite code.
+   V1.0.3    : 26/02/2000 - Update - IconSprites replaced with mergeSprites.
+   V1.0.2    : 15/02/2000 - Update - Now checks config for App. options.
+   V1.0.1    : 03/12/1999 - Update - Now uses MiniDisc directory sprite.
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     : For internal use only in building path menus.
+--------------------------------------------------------------------------------
+*/
+menu_ptr MenuBuild_Dir(char *filename, char *title, menu_ptr subMenu, int index, int appType,
+                       char *filePath)
+{
+  _kernel_swi_regs  regs;
+  char              aString[256];
+  BOOL              shrinkSprite = FALSE,
+                    allowInApps  = TRUE;
+
+
+  db->fn_begin();
+
+  aString[0] = 0;
+
+  if (appType == 32)  /* '!' prefix application directory */
+  {
+    shrinkSprite = XUtil_GetDirSprite(filename, aString, "S");
+    if (strcmp(aString, "Ssmall_app") == 0)  /* No sprite found */
+    {
+      if (MDCfg->misc.bootApps == 0 || (MDCfg->misc.bootApps == 2 && XUtil_KeyPressed(-3)))  // Alt
+      {
+        if (MDCfg->misc.quickBoot == 0)  /* IconSprites Only */
+        {
+          if (screen_eig.y == 1)
+          {
+            sprintf(aString, "%s.%s.!Sprites22", filePath, filename);
+            if (!XUtil_FileExists(aString))  sprintf(aString, "%s.%s.!Sprites", filePath, filename);
+          }
+          else
+          {
+            sprintf(aString, "%s.%s.!Sprites", filePath, filename);
+            if (!XUtil_FileExists(aString))  sprintf(aString, "%s.%s.!Sprites22",filePath,filename);
+          }
+
+          MenuIsMessy = TRUE;
+          regs.r[0]   = 11;
+          regs.r[2]   = (int)aString;
+
+          _kernel_swi (0x0400e9, &regs, &regs);
+        }
+        else                                /* Filer_Boot       */
+        {
+          MenuIsMessy = TRUE;
+          sprintf(aString, "Filer_Boot %s.%s", filePath, filename);
+          Wimp_StartTask(aString);
+        }
+        shrinkSprite = XUtil_GetDirSprite(filename, aString, "S");
+      }
+    }
+    allowInApps = d->currentMenu.allowInApps;
+  }
+  else  strcpy (aString, "ssmall_dir");  /* Regular, run-of-the-mill directory found */
+
+  if (!allowInApps && d->currentMenu.hidePling)  filename = filename + 1;
+
+  subMenu = MenuBuild_Extend(subMenu, title, filename, allowInApps, shrinkSprite, index, aString,
+                             (!allowInApps && d->currentMenu.hidePling ? TRUE : FALSE));
+
+  db->fn_end();
+
+
+  return subMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_ImageDir
+   Purpose   : Create a menu entry for an image filing-system directory, then
+               add it on to the end of the menu passed in.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 10/03/2002 - Update - Changed interface to MenuBuild_Extend.
+   V1.0.1    : 14/01/2002 - Update - Now uses generic sprite code.
+   V1.0.0    : 12/12/1999 - Preliminary implementation.
+   Notes     : For internal use only in building path menus.
+--------------------------------------------------------------------------------
+*/
+menu_ptr MenuBuild_ImageDir(char     *fileName,
+                            char     *title,
+                            menu_ptr  subMenu,
+                            int       index,
+                            int       loadAdd,
+                            char     *path)
+{
+  char      aString[256];
+  BOOL      shrinkSprite;
+  menu_ptr  aMenu;
+
+
+  db->fn_begin();
+
+  shrinkSprite = XUtil_GetFileSprite(fileName, aString, "S", ((loadAdd & 0x000fff00) >> 8));
+
+  aMenu = MenuBuild_Extend (subMenu, title, fileName, TRUE, shrinkSprite, index, aString, FALSE);
+
+  UNUSED(path);
+
+  db->fn_end();
+
+
+  return aMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_AddDirUp
+   Purpose   : Builds an '-up' element of a directory submenu.
+   Status    : Implementation (V1.0.0)
+   V1.0.2    : 31/03/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+menu_ptr MenuBuild_AddDirUp (char *filePath, menu_ptr subMenu, char *title, int *index)
+{
+  menu_item *menuItem = NULL;
+  char      *token,
+            *firstToken = NULL,  /* Note: We do not need to initialise this, but
+                                          Norcroft is not aware of strtok, so this
+                                          is needed to suppress erronious compiler
+                                          warning messages. */
+            *intPath;
+
+  db->fn_begin();
+
+  intPath = malloc(strlen(filePath)+1);  /* Allocate a buffer so we don't trash original string */
+                                         /* ... we should do a memory allocation check here.    */
+  strcpy(intPath, filePath);             /* Copy string for strtok mangling.                    */
+
+  do
+  {
+    token = strtok(intPath, ".");  /* Get a substring... */
+
+    if (intPath != NULL)   /* First call, so set parse string to NULL for next call. */
+    {
+      firstToken = token;  /* token = (e.g.) ADFS::4 */
+      intPath    = NULL;
+    }
+
+    else
+    {
+      if (token != NULL)         /* A valid token found, append a menu entry. */
+      {
+        if (firstToken != NULL)  /* Second call, so concatenate the first 2 tokens. */
+        {
+          *(token - 1) = '.';    /* Remove the token(1) terminator */
+          subMenu      = MenuBuild_Dir(firstToken,title,subMenu,(*index)++,token[0]-1,filePath);
+          firstToken   = NULL;
+        }
+        else
+          subMenu      = MenuBuild_Dir(token, title, subMenu, (*index)++, token[0]-1, filePath);
+
+        /* Note: The fn call (above) is DODGY - (token[0]-1) should NOT require the -1 part. */
+      }
+
+      else  /* The last 'up' entry gets a line underneath it. */
+      {
+        menuItem = MenuGet_Item (subMenu, (*index)-1);
+        menuItem->menuflags.data.dotted = 1;
+      }
+    }
+  } while (token != NULL);
+
+  db->fn_end();
+
+
+  return subMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : dirMenu_FromDir
+   Purpose   : Builds a submenu containing each directory item.
+   Status    : Implementation (V1.0.3)
+   V1.0.3    : 27/08/2003 - Bugfix - Added code to set the indirected title
+                                     flag as appropriate.
+   V1.0.2    : 21/04/2002 - Bugfix - Now works with empty directories.
+   V1.0.1    : 05/11/2001 - Update - Removed 1 file dir hack to fix CDROMFS.
+   V1.0.0    : 18/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *dirMenu_FromDir (char *filePath, char *title, BOOL up)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  char              fileName[4096 + 512];  /* Maximum LEAF filename length = 370 - 24 = 346 */
+  int               index     = 0,
+                    i, j = 0;
+  BOOL              firstTime = TRUE;
+  menu_ptr          subMenu   = NULL;
+  menu_item        *menuItem;
+
+
+  db->fn_begin();
+
+  db->tracef(1, "About to build a menu of the contents of %s", filePath);
+
+  menuUp      = up;
+  longestName = 0;                              /* Initialise longest directory entry       */
+  MenuIsMessy = FALSE;                          /* Flag menu as not requiring extra entry   */
+  regs.r[0]   = 12;                             /* OS_GBPB 12                               */
+  regs.r[1]   = (int) filePath;                 /* Pointer to directory name                */
+  regs.r[2]   = (int) fileName;                 /* Pointer to word aligned buffer           */
+  regs.r[3]   = 1;                              /* Number of objects to handle at once      */
+  regs.r[4]   = 0;                              /* Offset of first item in dir to read      */
+  regs.r[5]   = sizeof(fileName) - 1;           /* Buffer size                              */
+  regs.r[6]   = 0;                              /* Match '*'                                */
+  anError     = _kernel_swi(12, &regs, &regs);  /* Initial OS_GBPB call                     */
+
+  /* Empty directories, or an error. */
+  if (anError != NULL || regs.r[3] == 0 || regs.r[4] == -1)
+  {
+    if (up)
+    {
+      subMenu  = MenuBuild_AddDirUp (filePath, subMenu, title, &index);
+      subMenu  = Menu_Extend (subMenu, anError == NULL ? "Nothing" : anError->errmess);
+      j        = index;
+    }
+    else
+    {
+      subMenu  = Menu_New (title, anError == NULL ? "Nothing" : anError->errmess);
+      j        = 0;
+    }
+
+    menuItem = MenuGet_Item (subMenu, j);
+    menuItem->iconflags.data.shaded    = 1;
+    menuItem->menuflags.data.shaded    = 1;
+    menuItem->menuflags.data.notifysub = 0;
+    menuItem->menuflags.data.writable  = 0;
+  }
+
+  /* Loop through each entry in the directory */
+  else while (regs.r[4] != -1)
+  {
+    if (firstTime)
+    {
+      firstTime  = !firstTime;
+      anError    = NULL;
+      if (up)
+      {
+        subMenu  = MenuBuild_AddDirUp (filePath, subMenu, title, &index);
+        j        = index;
+      }
+    }
+    else anError = _kernel_swi (12, &regs, &regs);
+
+    if (regs.r[3] > 0)
+    switch(*(fileName + 16))
+    {
+      case 1:   /* Conventional file      */
+        subMenu = MenuBuild_File    (fileName+24, title, subMenu, index++, *(int *)(fileName+20),
+                                     filePath);
+        break;
+      case 2:   /* Conventional directory */
+        subMenu = MenuBuild_Dir     (fileName+24, title, subMenu, index++, *(int *)(fileName+21),
+                                     filePath);
+        break;
+      case 3:   /* Image Filing System    */
+        subMenu = MenuBuild_ImageDir(fileName+24, title, subMenu, index++, *(int *)(fileName),
+                                     filePath);
+        break;
+    }
+    j++;
+  }
+
+  /* Add a (rather naff) extra entry to the bottom of the menu to get the widths right */
+  if (MenuIsMessy && ((d->OSVersion < 432) || (d->OSVersion > 499)))  // (Although, Select 2 works fine!)
+  {
+    db->trace(100, "Adding WIMP menu sprites hack.");
+
+    strcpy(fileName, "~ZZ");
+    for (i = 0; i < longestName; i++) strcat(fileName, "Z");
+    subMenu = Menu_Extend (subMenu, fileName);
+    menuItem = MenuGet_Item(subMenu, j-1);
+    menuItem->iconflags.data.foreground = 1;
+  }
+
+  db->fn_end();
+
+
+  return subMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : dirMenu_FromDrive
+   Purpose   : Calculates a directory path from a MenuWarning event then
+               builds a submenu containing each directory item.
+   Status    : Implementation (V2.0.2)
+   V2.0.2    : 15/08/2000 - Update - Added builder '-up' support.
+   V2.0.1    : 17/02/2000 - Update - Now avoids a rebuild if we've already
+                                     created a menu.
+   V2.0.0    : 18/12/1999 - Recode - Re-written to allow generic builder code
+                                     to be used for directory menus.
+   V1.0.3    : 16/12/1999 - Update - Removed 'shortcut' paramater as it's no-
+                                     longer required.
+   V1.0.2    : 25/09/1999 - Update - Now returns a pointer to the created
+                                     menu.  Also, 'shortcut' is used to
+                                     determine where a shortcuts menu was
+                                     opened from, 0 = iconbar, 1 = main
+                                     MiniDisc submenu.
+   V1.0.1    : 04/09/1999 - Bugfix - Now works with PsiRiscFS propperly, so
+                                     long as there is more than 1 directory
+                                     entry.  This seems to be a bug in PsiRisc
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void *dirMenu_FromDrive(void *event, int up)
+{
+  char       filePath[256];  /* Directory name - RO4 !!!! */
+  char      *title   = NULL;
+  menu_ptr   subMenu = NULL;
+  menu_item *menuItem;
+
+
+  db->fn_begin();
+
+  menuItem = MenuGet_FilePath(((event_pollblock *)event)->data.message.data.menuwarn.selection,
+                              filePath, &title);          /* Find where to attach our menu to. */
+
+  if (menuItem->submenu.value > 1)  subMenu = menuItem->submenu.menu;
+  else
+  {
+    subMenu                = (menu_ptr) dirMenu_FromDir(filePath, title, up);
+    menuItem->submenu.menu = subMenu;
+  }
+
+  Wimp_CreateSubMenu (subMenu, ((event_pollblock *)event)->data.message.data.menuwarn.openpos.x,
+                               ((event_pollblock *)event)->data.message.data.menuwarn.openpos.y);
+
+  db->fn_end();
+
+
+  return subMenu;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_FollowPath
+   Purpose   : Process 'follow' events in directory path menus from iconbar.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 15/08/2000 - Update - Added '-up' support.
+   V1.0.0    : 18/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MenuBuild_FollowPath (event_pollblock *event, void *reference)
+{
+  db->fn_begin();
+
+  if ((int)reference == 1)  menuUp = TRUE;
+  else                      menuUp = FALSE;
+
+  dirMenu_FromDrive((void *)event, FALSE);
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MenuBuild_ClickPath
+   Purpose   : Process clicks in directory path menus from the iconbar.
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 13/05/2001 - Update - Added 'up' menu support.
+   V1.0.0    : 18/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MenuBuild_ClickPath (event_pollblock *event, void *reference)
+{
+  mouse_block  ptr;
+
+
+  db->fn_begin();
+
+  if ((int)reference == 1)  menuUp = TRUE;
+  else                      menuUp = FALSE;
+
+  dirMenu_Click ((void *)event);
+
+  /* Redisplay the menu if required */
+  Wimp_GetPointerInfo (&ptr);
+  if (ptr.button.data.adjust) Menu_ShowLast ();
+  else
+  {
+    MenuDump         (mainmenu);
+    Event_Release    (event_MENU, event_ANY, event_ANY, MenuBuild_ClickPath, reference);
+    EventMsg_Release (message_MENUWARNING, (window_handle) mainmenu, MenuBuild_FollowPath);
+  }
+
+  db->fn_end();
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : dirMenu_FromPath
+   Purpose   : Build a directory menu for the iconbar.
+   Status    : Implementation (V1.0.3)
+   V1.0.3    : 05/08/2001 - Update - Added support for toolbar adjust clicks.
+   V1.0.2    : 15/08/2000 - Update - Added new '-up' support into menu builder
+   V1.0.1    : 27/02/2000 - Bugfix - Now uses 'mainmenu'.
+   V1.0.0    : 18/12/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void dirMenu_FromPath(char *filePath, event_pollblock *event)
+{
+  int  i;
+
+
+  db->fn_begin();
+
+  for (i = strlen(filePath); filePath[i] != '.' && filePath[i] != ':'; i--);
+
+  mainmenu                       = (menu_ptr) dirMenu_FromDir (filePath, filePath + i + 1, FALSE);
+  d->currentMenu.menuptr         = (int)mainmenu;
+  d->currentMenu.type            = MD_menu_directory;
+  d->currentMenu.context.dirPath = filePath;
+
+  Event_Claim    (event_MENU, event_ANY,             event_ANY,  MenuBuild_ClickPath,  NULL);
+  EventMsg_Claim (message_MENUWARNING, (window_handle) mainmenu, MenuBuild_FollowPath, NULL);
+
+  if (event->data.mouse.window == -2)
+        Menu_Show (mainmenu, event->data.mouse.pos.x, -1);                       // Iconbar click
+  else  Menu_Show (mainmenu, event->data.mouse.pos.x, event->data.mouse.pos.y);  // Toolbar click
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : dirMenu_SetFlags
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 15/02/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void dirMenu_SetFlags(void)
+{
+  db->fn_begin();
+
+  d->currentMenu.allowInApps = !MDCfg->misc.allowInApps;
+  d->currentMenu.hidePling   = !MDCfg->misc.hidePling;
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : dirMenu_AddHandlers
+   Purpose   :                                                         
+   Status    : Development
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void dirMenu_AddHandlers (void *dirMenu)
+{
+  db->fn_begin();
+
+  Event_Claim    (event_MENU, event_ANY,             event_ANY, MenuBuild_ClickPath,  (void *)1);
+  EventMsg_Claim (message_MENUWARNING, (window_handle) dirMenu, MenuBuild_FollowPath, (void *)1);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: dirmenu.cpp,v $
+   Revision 1.4  2003/10/05 16:00:01  jtemple
+   General check-in for release testing.
+
+   Revision 1.3  2003/09/14 11:07:08  jtemple
+   Now uses DeskLib Menu_New function.
+   Replaced Mem_ functions with malloc/free.
+   Added some additional debugging code.
+
+   Revision 1.2  2003/08/29 20:28:00  jtemple
+   Indirected title bugfix.  Code & comment tidy.  Debugging extended.
+
+
+--------------------------------------------------------------------------------
+*/
+

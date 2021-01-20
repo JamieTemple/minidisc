@@ -1,0 +1,1186 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/options.c,v $
+
+   $Revision: 1.7 $
+   $Date: 2004/04/17 14:57:07 $
+
+   MiniDisc configuration options load/save/read/write code.
+
+   Whenever you add a new configuration option, make sure that you
+   update ALL THREE procedures: Options_ Load, Save & Copy.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+#include "shared/options.h"
+#include "shared/utilities.h"
+
+#ifdef BUILD_MINIDISC
+#include "minidisc/core/taskslice.h"
+#endif
+
+#include "DeskLib:Error.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Str.h"
+
+
+#ifdef BUILD_MDSETUP
+extern app_config  tempCfg;
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Global Variables
+--------------------------------------------------------------------------------
+*/
+app_config *MDCfg;
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_SaveSmartSave
+   Purpose   : Read a 'SmartSave' config file.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 04/06/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_SaveSmartSave(void)
+{
+  file_handle  aFile;
+  int          i;
+
+
+  if ((aFile = File_Open(Options_SmartSaveFile, file_WRITE)) != NULL)
+  {
+    for (i = 0; i < 4096; i++)
+      if (d->smartConfig[i] != NULL)  File_printf(aFile, "%03x\t%s\n", i, d->smartConfig[i]);
+
+    File_Close(aFile);
+  }
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : readline
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 04/06/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+int readline(char *buffer, int size, file_handle handle)
+{
+  int i = 0;
+
+
+  while (!File_EOF(handle))
+  {
+    for (i = 0; (buffer[i] = File_Read8(handle)) != 10 && i < size; i++); /* Fill buffer */
+    buffer[i] = 0;  /* Terminate our buffer propperly! */
+
+    if (buffer[0] == 0)    continue;  /* Skip empty lines   */
+    if (buffer[0] == '#')  continue;  /* Skip comment lines */
+
+    break;  /* We've read something that we're interested in, so return */
+  }
+
+
+  return i;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_CheckConfig
+   Purpose   : Checks to see if we have a config, copies in defaults if missing.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 04/06/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Options_CheckConfig(char *filename, char *Default)
+{
+  char cmdBuffer[1024];
+
+
+  if (!File_Exists(filename))
+  {
+    sprintf (cmdBuffer, "Copy MiniDiscRes:defaults.%s %s ~C~V", Default, filename);
+    OS_CLI  (cmdBuffer);
+
+    return FALSE;
+  }
+  else
+    return TRUE;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_CheckPodules
+   Purpose   : Analyse installed podules / filing systems.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 17/07/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_CheckPodules (void)
+{
+  _kernel_swi_regs  regs;
+  _kernel_oserror  *anError;
+  int               i, cc;
+  char              buffer[buffer_size];
+  BOOL              foundIDEFS;
+
+
+  db_fn_begin();
+
+  db_trace (1, "Checking podules...");
+
+#ifdef BUILD_MINIDISC
+  TaskSlice_SplashWrite ("splash.scanpf");
+#endif
+
+  foundIDEFS = FALSE;
+
+  for (i = 1; i < 256; i++)  /* Scan filing systems for IDEFS... */
+  {
+    regs.r[0] = 13;
+    regs.r[1] = i;
+    regs.r[2] = 0;
+    _kernel_swi(SWI_OS_FSControl | SWI_XOS_Bit, &regs, &regs);
+
+    if (regs.r[2] != 0)
+    {
+      regs.r[0] = 33;
+      regs.r[1] = i;
+      regs.r[2] = (int)(&buffer);
+      regs.r[3] = buffer_size;
+      _kernel_swi(SWI_OS_FSControl | SWI_XOS_Bit, &regs, &regs);
+
+      if (!foundIDEFS && strcmp(buffer, "IDEFS") == 0)  foundIDEFS = TRUE;
+    }
+  }
+
+
+  if (foundIDEFS)
+  {
+    d->IDEFSVersion = IDEFS_Other;  /* Initially, flag as 'Other'. */
+
+    for (i = 0; i < 8; i++)
+    {
+      db_tracef(100, "Checking podule in slot %d", i);
+
+      cc        = 0;
+      regs.r[0] = 0;
+
+      do
+      {
+        db_tracef(100, "  Checking podule chunk %d", regs.r[0]);
+
+        regs.r[3] = i;
+        anError = _kernel_swi(0x40282 | SWI_XOS_Bit, &regs, &regs); /* Podule_EnumerateChunks */
+
+        if (anError != NULL)  break;
+
+        if (++cc > 10)  break;  /* Viewfinder hack */
+
+        db_tracef(100, "  Chunk returned id %d", regs.r[2]);
+
+        if ((regs.r[2] & 0x0f) != 4)  continue;  /* NOT a description chunk, so keep looking... */
+
+        db_tracef(100, "Found podule description chunk (size %d).", regs.r[1]);
+
+        if (regs.r[1] < buffer_size)  /* Ensure that we don't try to read junk */
+        {
+          regs.r[2] = (int)(&buffer);
+          _kernel_swi(0x40283 | SWI_XOS_Bit, &regs, &regs);
+
+          db_tracef(100, "Expansion card describes itself as : %s", buffer);
+
+          if (strcmp(buffer, "Simtec 16 bit IDE Interface") == 0)  d->IDEFSVersion = IDEFS_Simtec;
+        }
+
+        break;  /* Bail-out once we've read the description chunk. */
+      } while (regs.r[0] != 0);
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_StartScript
+   Purpose   : Run a startup scriot (if one exists)
+   Status    : Implementation (V1.0.1)
+   V1.0.1    : 03/11/2001 - Update - Script name and location are now standard
+   V1.0.0    : 15/07/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_StartScript (void)
+{
+  db_fn_begin();
+
+  db_trace(100, "Running additional application startup commands.");
+
+  if (!File_Exists("<MiniDisc$Choices>.Start"))  /* Ensure a file exists */
+    OS_CLI("Copy MiniDiscRes:defaults.Start <MiniDisc$Choices>.Start ~C~V");
+
+  Wimp_StartTask("Filer_Run <MiniDisc$Choices>.Start");
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_Copy
+   Purpose   : Copy configuration options from one structure to another.
+   Status    : Implementation (V1.0.5)
+   V1.0.5    : 13/08/2003 - Update - Added 'filer open' filter option read.
+   V1.0.4    : 30/01/2000 - Update - Now handles all iconbar action types.
+   V1.0.3    : 08/01/2000 - Update - Added iconbar drag action handlers.
+   V1.0.2    : 03/12/1999 - Update - Now uses DeskLib 'Mem' functions.
+   V1.0.1    : 24/11/1999 - Update - Added Shortcuts 'Quick-drag' option
+   V1.0.0    : 18/09/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_Copy(app_config *from, app_config *to)
+{
+  int i;
+
+
+  db_fn_begin();
+
+  for (i = 0; i < 8; i++)
+  {
+    to->iconbar.selectType[i] = from->iconbar.selectType[i];
+    to->iconbar.adjustType[i] = from->iconbar.adjustType[i];
+    to->iconbar.dragAction[i] = from->iconbar.dragAction[i];
+
+    Options_CopyString(to->iconbar.select[i],  from->iconbar.select[i]);
+    Options_CopyString(to->iconbar.adjust[i],  from->iconbar.adjust[i]);
+    Options_CopyString(to->iconbar.dragDir[i], from->iconbar.dragDir[i]);
+  }
+
+  Options_CopyString(to->iconbar.userDefined, from->iconbar.userDefined);
+  to->iconbar.iconType      = from->iconbar.iconType;
+
+  to->misc.discsOnly          = from->misc.discsOnly;
+  to->misc.hideControl        = from->misc.hideControl;
+  to->misc.bootApps           = from->misc.bootApps;
+  to->misc.quickBoot          = from->misc.quickBoot;
+  to->misc.noSplash           = from->misc.noSplash;
+  to->misc.allowInApps        = from->misc.allowInApps;
+  to->misc.hidePling          = from->misc.hidePling;
+  to->misc.scanDevices        = from->misc.scanDevices;
+  to->misc.ramConfirm         = from->misc.ramConfirm;
+  to->misc.useCustom          = from->misc.useCustom;
+
+  to->filecore.inMenu         = from->filecore.inMenu;
+  to->filecore.inTbar         = from->filecore.inTbar;
+  to->filecore.removeIcons    = from->filecore.removeIcons;
+  to->filecore.greyEmpty      = from->filecore.greyEmpty;
+  to->filecore.hideIDEFS      = from->filecore.hideIDEFS;
+  to->filecore.ignorePublic   = from->filecore.ignorePublic;
+  to->filecore.dailySaveDirs  = from->filecore.dailySaveDirs;
+  strcpy(to->filecore.tempDirNameFormat, from->filecore.tempDirNameFormat);
+
+  to->image.resFSinMenu       = from->image.resFSinMenu;
+  to->image.resFSinTbar       = from->image.resFSinTbar;
+  to->image.resFSremoveIcon   = from->image.resFSremoveIcon;
+  to->image.resFSopenApps     = from->image.resFSopenApps;
+  to->image.memFSinMenu       = from->image.memFSinMenu;
+  to->image.memFSinTbar       = from->image.memFSinTbar;
+  to->image.memFSremoveIcon   = from->image.memFSremoveIcon;
+
+  Options_CopyString (to->cdfs.playerPath, from->cdfs.playerPath);
+  to->cdfs.inMenu             = from->cdfs.inMenu;
+  to->cdfs.inTbar             = from->cdfs.inTbar;
+  to->cdfs.removeIcons        = from->cdfs.removeIcons;
+  to->cdfs.autoDetect         = from->cdfs.autoDetect;
+  to->cdfs.cdromfs            = from->cdfs.cdromfs;
+
+  Options_CopyString (to->psion.appPath, from->psion.appPath);
+  to->psion.inMenu            = from->psion.inMenu;
+  to->psion.inTbar            = from->psion.inTbar;
+  to->psion.autoConnect       = from->psion.autoConnect;
+  to->psion.rawDrives         = from->psion.rawDrives;
+  to->psion.driver            = from->psion.driver;
+
+  to->printer.inMenu          = from->printer.inMenu;
+  to->printer.QuitPM          = from->printer.QuitPM;
+
+  to->shortcut.inMenu         = from->shortcut.inMenu;
+  to->shortcut.menuPos        = from->shortcut.menuPos;
+  to->shortcut.quickDrag      = from->shortcut.quickDrag;
+  to->shortcut.catchPinClicks = from->shortcut.catchPinClicks;
+  Options_CopyString(to->shortcut.shortcutMenu, from->shortcut.shortcutMenu);
+
+  to->network.shareInMenu     = from->network.shareInMenu;
+  to->network.shareInTbar     = from->network.shareInTbar;
+  to->network.shareNoIcons    = from->network.shareNoIcons;
+  to->network.shareHideLocal  = from->network.shareHideLocal;
+  to->network.shareOneEntry   = from->network.shareOneEntry;
+
+  to->network.armTCPInMenu    = from->network.armTCPInMenu;
+  to->network.armTCPInTbar    = from->network.armTCPInTbar;
+  to->network.armTCPNoIcons   = from->network.armTCPNoIcons;
+
+  to->filters.winTitle        = from->filters.winTitle;
+  to->filters.pinSave         = from->filters.pinSave;
+  to->filters.doubleTake      = from->filters.doubleTake;
+  to->filters.filerOpen       = from->filters.filerOpen;
+  to->filters.taskSwitcher    = from->filters.taskSwitcher;
+
+  to->toolbar.enabled         = from->toolbar.enabled;
+  to->toolbar.displayPos      = from->toolbar.displayPos;
+  to->toolbar.hideWhen        = from->toolbar.hideWhen;
+  Options_CopyString(to->toolbar.includeMenu, from->toolbar.includeMenu);
+  to->toolbar.showTips        = from->toolbar.showTips;
+  to->toolbar.bigButtons      = from->toolbar.bigButtons;
+  to->toolbar.spacing         = from->toolbar.spacing;
+  to->toolbar.gapSize         = from->toolbar.gapSize;
+  to->toolbar.align           = from->toolbar.align;
+  to->toolbar.orientation     = from->toolbar.orientation;
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_Read
+   Purpose   : Copy configuration options into a structure for use in the
+               configuration window.
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 18/09/1999 - Update - Now uses the generic copy code.
+   V1.0.3    : 14/09/1999 - Update - Added Select/Adjust action types.
+   V1.0.2    : 11/09/1999 - Update - Added iconbar appearance & Quit !Printers
+   V1.0.1    : 04/09/1999 - Update - Added printer.inMenu support
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_Read (void)
+{
+#ifdef BUILD_MDSETUP
+  Options_Copy(MDCfg, &tempCfg);
+#endif
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_Write
+   Purpose   : Copy configuration options back into main structure.
+   Status    : Implementation (V1.1.2)
+   V1.1.2    : 08/01/2000 - Update - Added iconbar drag action handlers.
+   V1.1.1    : 03/12/1999 - Update - Now uses DeskLib 'Mem' funcions.
+   V1.1.0    : 18/09/1999 - Recode - Now uses the generic copy code.
+   V1.0.3    : 14/09/1999 - Update - Added Select/Adjust action types.
+   V1.0.2    : 11/09/1999 - Update - Added iconbar appearance & Quit !Printers
+   V1.0.1    : 04/09/1999 - Update - Added printer.inMenu support
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_Write (void)
+{
+  db_fn_begin();
+
+#ifdef BUILD_MDSETUP
+  int i;
+
+
+  /* Free-up memory previously used to store strings */
+  for (i = 0; i < 8; i++)
+  {
+    free(MDCfg->iconbar.select[i]);
+    free(MDCfg->iconbar.adjust[i]);
+    free(MDCfg->iconbar.dragDir[i]);
+  }
+  free(MDCfg->iconbar.userDefined);
+  free(MDCfg->psion.appPath);
+  free(MDCfg->cdfs.playerPath);
+  free(MDCfg->shortcut.shortcutMenu);
+  free(MDCfg->toolbar.includeMenu);
+
+  Options_Copy(&tempCfg, MDCfg);
+#endif
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_LoadSmartSave
+   Purpose   : Load a list of directories for the 'SmartSave' code.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 16/04/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_LoadSmartSave(void)
+{
+  file_handle  aFile;
+  char         readBuff[256];
+  int          i, type;
+
+
+  for (i = 0; i < 4096; i++) d->smartConfig[i] = NULL;  /* Initialise the list */
+
+  /* Load the config file, bail if we fail.*/
+  if ((aFile = File_Open(Options_SmartSaveFile, file_READ)) == NULL)  return;
+
+
+  while (!File_EOF(aFile))
+  {
+    i = readline(readBuff, 256, aFile);
+
+    if (i < 6) continue;
+
+    readBuff[3] = 0;
+
+    type = (int)strtol(readBuff, (char **)NULL, 16);
+
+    if (type > 4095)  continue;
+
+    d->smartConfig[type] = malloc (strlen(readBuff+4) + 1);
+
+    strcpy(d->smartConfig[type], readBuff+4);
+  }
+
+  File_Close(aFile);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_LoadFilerApps
+   Purpose   : Load a list of .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 26/05/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_LoadFilerApps (void)
+{
+  file_handle  aFile;
+  char         readBuff[256];
+  int          j = 0,
+               k = 0;
+
+
+  if ((aFile = File_Open(Options_FilerAppsFile, file_READ)) == NULL)  return;
+
+  while (!File_EOF(aFile))
+  {
+    readline(readBuff, 256, aFile);
+
+    /* Read a record... */
+    for (k = 0; readBuff[k] != ',' && k < 8; k++)
+      MDCfg->filecore.apps[j].fsn_name[k] = readBuff[k];
+    MDCfg->filecore.apps[j].fsn_name[k++] = 0;
+    MDCfg->filecore.apps[j].drives        = 0;
+    if (readBuff[k] == '0' && readBuff[k+2] == '3')  MDCfg->filecore.apps[j].drives = 1;
+    if (readBuff[k] == '4' && readBuff[k+2] == '7')  MDCfg->filecore.apps[j].drives = 2;
+    if (readBuff[k] == '0' && readBuff[k+2] == '7')  MDCfg->filecore.apps[j].drives = 3;
+    if (readBuff[k+4] == 'V') MDCfg->filecore.apps[j].verify = TRUE;
+    else                      MDCfg->filecore.apps[j].verify = FALSE;
+    strncpy(MDCfg->filecore.apps[j].command, readBuff + k + 6, 256);
+
+    j++;
+    if (j > 15)  break;  /* Max 16 entries */
+  }
+  File_Close(aFile);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_LoadAliases
+   Purpose   : Load a list of drive aliases for use in the main MiniDisc menu
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 18/04/2004 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_LoadAliases (void)
+{
+  file_handle  aFile;
+  char         readBuff[256];
+  int          i, j = 0;
+
+
+  db_fn_begin();
+
+  // Initialise the array.
+  for(i = 0; i < 16; i++)
+  {
+    MDCfg->aliases[i].fsn   = NULL;
+    MDCfg->aliases[i].alias = NULL;
+  }
+
+  if ((aFile = File_Open(Options_AliasesFile, file_READ)) == NULL)  return;
+
+  while (!File_EOF(aFile))
+  {
+    readline(readBuff, 256, aFile);  // Read a record...
+
+    MDCfg->aliases[j].fsn   = "ADFS::4";//strdup(strtok(readBuff, ","));
+    MDCfg->aliases[j].alias = "jamie";//strdup(strtok(NULL, " "));
+
+//    db_tracef(1, "%s %s", MDCfg->aliases[j].fsn, MDCfg->aliases[j].alias);
+
+    j++;
+    if (j > 15)  break;  // Max 16 entries
+  }
+  File_Close(aFile);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_LoadIcons
+   Purpose   : .
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 04/06/2002 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_LoadIcons (void)
+{
+  file_handle  aFile;
+  char         readBuff[256];
+  int          i = 0,
+               k = 0;
+
+
+  /* We need to initialise the icons array here. */
+  memset(MDCfg->icons, 0, sizeof(MDCfg->icons));
+
+  if ((aFile = File_Open(Options_IconsFile, file_READ)) == NULL)  return;
+
+  while (!File_EOF(aFile))
+  {
+    readline(readBuff, 256, aFile);
+
+    for (k = 0; (readBuff[k] != 0x09) && (readBuff[k] != 0) && (readBuff[k] != ' '); k++);
+
+    if (k > 20 || readBuff[k] == 0)  continue;  /* Garbage, or empty. */
+
+    readBuff[k] = 0;  /* Terminate the device string */
+
+    strcpy(MDCfg->icons[i].device, readBuff);
+
+    for (k++; ((readBuff[k] == 0x09) || (readBuff[k] == ' ')) && (readBuff[k] != 0); k++);
+
+    strcpy(MDCfg->icons[i].sprite, readBuff+k);
+
+    i++;
+    if (i > 19)  break;  /* Max 20 entries */
+  }
+  File_Close(aFile);
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_LoadIgnores
+   Purpose   : Load a list of filing systems to ignore if there is one.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 22/03/2002 - Update - Improved string checks / storage.
+   V1.0.1    : 29/11/2001 - Update - Added checks for missing files.
+   V1.0.0    : 28/01/2000 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_LoadIgnores (void)
+{
+  file_handle  aFile;
+  int          i = 0,
+               j = 0;
+
+
+  /* Empty out the array */
+  memset(d->ignoreFSNs,0,sizeof(d->ignoreFSNs));
+
+  if ((aFile = File_Open(Options_IgnoresFile, file_READ)) != NULL)
+  {
+    while (!File_EOF(aFile))
+    {
+      for (i = 0; (d->ignoreFSNs[j][i] = File_Read8(aFile)) != 10 && i < 24; i++);
+
+      if (d->ignoreFSNs[j][i] != 10)  /* String truncated, so bin the rest of this line. */
+        while(!File_EOF(aFile) && File_Read8(aFile) != 10);
+
+      d->ignoreFSNs[j++][i] = 0;                                      /* EOL input buffer     */
+
+      if (j > 15) break;                                              /* Max 16 entries       */
+    }
+    File_Close(aFile);
+  }
+
+  d->config.ignoreFSNs = d->ignoreFSNs[0];    /* Set up our additional pointer. */
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : get_iconbar_action
+   Purpose   : Handy macro, used in Options_Load.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 13/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static int get_iconbar_action(msgtrans_filedesc *filedesc, char *tag, char modifier)
+{
+  char  buffer[buffer_size],
+        msgBuffer[32];
+
+
+  db_fn_begin();
+
+  sprintf         (msgBuffer, "iconbar.%s%c:99", tag, '0' + modifier);
+  MsgTrans_Lookup (filedesc, msgBuffer, buffer, buffer_size);
+
+  db_fn_end();
+
+
+  return atoi(buffer);
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : get_iconbar_action_mod
+   Purpose   : Builds a messageTrans tag, looks it up and saves it into 'destn'.
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 16/08/2003 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static void get_iconbar_action_mod (msgtrans_filedesc *filedesc, char *tag,
+                                    char modifier, char **destn)
+{
+  char  buffer[buffer_size],
+        msgBuffer[32];
+  int   i;
+
+
+  db_fn_begin();
+
+  // Build the tag to search for ...
+  sprintf(msgBuffer, "iconbar.%s%c:", tag, '0' + modifier);
+
+  // ... then look it up!
+  Options_LookupString(msgBuffer, *destn);
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_Load
+   Purpose   : Load the configuration settings from a file.
+   Status    : Implementation (V1.2.4)
+   V1.2.4    : 13/08/2003 - Update - Added 'filer open' filter option read.
+   V1.2.3    : 15/05/2001 - Update - Added shortcuts pinboard filter support.
+   V1.2.2    : 18/08/2000 - Update - Updated printers defaults.
+   V1.2.1    : 17/07/2000 - Update - Altered PsiRiscFS defauls.
+   V1.2.0    : 15/07/2000 - Update - Now also initialises IDEFS version type.
+   V1.1.9    : 26/05/2000 - Update - Now tries to load FilerApps.
+   V1.1.8    : 30/01/2000 - Update - Now handles all iconbar action types.
+   V1.1.7    : 28/01/2000 - Update - Added a call to load the 'ignores' list.
+   V1.1.6    : 12/01/2000 - Bugfix - Now handles missing choices files
+                                     propperly.
+                                   - Now assigns default iconbar icon type.
+                          - Update - Altered default option for 'psion.connect'
+   V1.1.5    : 10/01/2000 - Update - Expanded 'Misc' options (event_info & vsn)
+   V1.1.4    : 08/01/2000 - Update - Added iconbar drag action handlers.
+   V1.1.3    : 03/01/2000 - Update - Now uses error number macro.
+   V1.1.2    : 28/11/1999 - Update - Removed static arrays
+                                   - Dumped options file search code, as this
+                                     is now done in the !Boot file
+                                   - Introduced options file macros.
+   V1.1.1    : 24/11/1999 - Update - Added Shortcuts 'Quick-drag' option
+   V1.1.0    : 18/09/1999 - Recode - Now uses macros to assign values.
+   V1.0.3    : 14/09/1999 - Update - Added Select/Adjust action types.
+   V1.0.2    : 11/09/1999 - Update - Added iconbar appearance & Quit !Printers
+   V1.0.1    : 04/09/1999 - Update - Added printer.inMenu support
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL Options_Load(char *filename)
+{
+  msgtrans_filedesc *filedesc;
+  char               buffer[buffer_size];
+  int                i;
+  BOOL               foundFile = TRUE,
+                     ignoresExists,
+                     filerAppsExists,
+                     smartSaveExists,
+                     shortcutsExists,
+                     iconsExists,
+                     aliasesExists;
+
+
+  db_fn_begin();
+
+  db_trace(100, "Reading Choices file...");
+
+  /* Ensure that there is a directory for our choices files. */
+  if (!File_Exists("<MiniDisc$Choices>"))  OS_CLI("cdir <MiniDisc$Choices>");
+
+  /* Ensure that some config files exist */
+  ignoresExists   = Options_CheckConfig(Options_IgnoresFile,    "IgnoreFS");
+  filerAppsExists = Options_CheckConfig(Options_FilerAppsFile,  "FilerApps");
+  smartSaveExists = Options_CheckConfig(Options_SmartSaveFile,  "SmartSave");
+  shortcutsExists = Options_CheckConfig("<MiniDisc$Shortcuts>", "Shortcuts");
+  iconsExists     = Options_CheckConfig(Options_IconsFile,      "Icons");
+  aliasesExists   = Options_CheckConfig(Options_AliasesFile,    "Aliases");
+
+  Options_LoadIgnores   ();
+  Options_LoadFilerApps ();
+  Options_LoadSmartSave ();
+  Options_LoadIcons     ();
+  Options_LoadAliases   ();
+
+  if (!File_Exists(filename))  /* No config file found */
+  {
+    foundFile = FALSE;
+    filedesc  = NULL;
+  }
+  else  MsgTrans_LoadFile(&filedesc, filename);
+
+
+  /* ---------- Iconbar configuration options ---------- */
+  Options_LookupValue  ("iconbar.seltype0:1",             MDCfg->iconbar.selectType[0]);
+  Options_LookupString ("iconbar.select0:ADFS::4.$",      MDCfg->iconbar.select[0]);
+  Options_LookupValue  ("iconbar.adjtype0:1",             MDCfg->iconbar.adjustType[0]);
+  Options_LookupString ("iconbar.adjust0:Resources:Apps", MDCfg->iconbar.adjust[0]);
+  Options_LookupValue  ("iconbar.dragact0:0",             MDCfg->iconbar.dragAction[0]);
+  Options_LookupString ("iconbar.dragdir0:ADFS::4.$",     MDCfg->iconbar.dragDir[0]);
+
+
+  for (i = 1; i < 8; i++)
+  {
+    MDCfg->iconbar.selectType[i] = get_iconbar_action(filedesc, "seltype", i);
+    MDCfg->iconbar.adjustType[i] = get_iconbar_action(filedesc, "adjtype", i);
+    MDCfg->iconbar.dragAction[i] = get_iconbar_action(filedesc, "dragact", i);
+
+    get_iconbar_action_mod(filedesc, "select",  i, &(MDCfg->iconbar.select[i]));
+    get_iconbar_action_mod(filedesc, "adjust",  i, &(MDCfg->iconbar.adjust[i]));
+    get_iconbar_action_mod(filedesc, "dragdir", i, &(MDCfg->iconbar.dragDir[i]));
+  }
+
+  Options_LookupString  ("iconbar.udtext:%z12:%mi:%se %am",        MDCfg->iconbar.userDefined);
+  Options_LookupValue   ("iconbar.icontype:0",                     MDCfg->iconbar.iconType);
+
+
+  /* ------------ Misc configuration options ----------- */
+  Options_LookupLogical ("misc.discs:no",                          MDCfg->misc.discsOnly);
+  Options_LookupLogical ("misc.altsub:no",                         MDCfg->misc.hideControl);
+  Options_LookupLogical ("misc.nosplash:no",                       MDCfg->misc.noSplash);
+  Options_LookupLogical ("misc.iconsprt:yes",                      MDCfg->misc.quickBoot);
+  Options_LookupValue   ("misc.autoboot:0",                        MDCfg->misc.bootApps);
+  Options_LookupLogical ("misc.inapps:no",                         MDCfg->misc.allowInApps);
+  Options_LookupLogical ("misc.nopling:yes",                       MDCfg->misc.hidePling);
+  Options_LookupValue   ("misc.events:0",                          d->events.value);
+  Options_LookupValue   ("misc.version:0",                         d->cfgVersion);
+  Options_LookupLogical ("misc.scandevs:no",                       MDCfg->misc.scanDevices);
+  Options_LookupLogical ("misc.ramcfrm:yes",                       MDCfg->misc.ramConfirm);
+  Options_LookupLogical ("misc.csticon:no",                        MDCfg->misc.useCustom);
+
+
+  /* ---------- Filecore configuration options ---------- */
+  Options_LookupLogical ("filecore.inmenu:yes",                    MDCfg->filecore.inMenu);
+  Options_LookupLogical ("filecore.intbar:yes",                    MDCfg->filecore.inTbar);
+  Options_LookupLogical ("filecore.noicons:yes",                   MDCfg->filecore.removeIcons);
+  Options_LookupLogical ("filecore.grey:yes",                      MDCfg->filecore.greyEmpty);
+  Options_LookupLogical ("filecore.nopublic:no",                   MDCfg->filecore.ignorePublic);
+  Options_LookupLogical ("filecore.dailydir:yes",                  MDCfg->filecore.dailySaveDirs);
+  Options_LookupLogical ("idefs.noempty:yes",                      MDCfg->filecore.hideIDEFS);
+  MsgTrans_Lookup (filedesc, "filecore.ddirname:.%DY/%M3/%YR",MDCfg->filecore.tempDirNameFormat,19);
+
+
+  /* ---------- Image filing system options ---------- */
+  Options_LookupLogical ("resfs.inmenu:yes",                       MDCfg->image.resFSinMenu);
+  Options_LookupLogical ("resfs.intbar:yes",                       MDCfg->image.resFSinTbar);
+  Options_LookupLogical ("resfs.noicon:yes",                       MDCfg->image.resFSremoveIcon);
+  Options_LookupLogical ("resfs.openapps:yes",                     MDCfg->image.resFSopenApps);
+  Options_LookupLogical ("memfs.inmenu:yes",                       MDCfg->image.memFSinMenu);
+  Options_LookupLogical ("memfs.intbar:yes",                       MDCfg->image.memFSinTbar);
+  Options_LookupLogical ("memfs.noicon:yes",                       MDCfg->image.memFSremoveIcon);
+
+
+  /* ---------- CDFS options ---------- */
+  Options_LookupLogical ("cdfs.inmenu:yes",                        MDCfg->cdfs.inMenu);
+  Options_LookupLogical ("cdfs.intbar:yes",                        MDCfg->cdfs.inTbar);
+  Options_LookupLogical ("cdfs.noicons:yes",                       MDCfg->cdfs.removeIcons);
+  Options_LookupLogical ("cdfs.detect:yes",                        MDCfg->cdfs.autoDetect);
+  Options_LookupString  ("cdfs.player:",                           MDCfg->cdfs.playerPath);
+  Options_LookupLogical ("cdfs.cdromfs:no",                        MDCfg->cdfs.cdromfs);
+
+
+  /* ---------- Psion options ---------- */
+  Options_LookupLogical ("psion.inmenu:no",                        MDCfg->psion.inMenu);
+  Options_LookupLogical ("psion.intbar:no",                        MDCfg->psion.inTbar);
+  Options_LookupLogical ("psion.connect:no",                       MDCfg->psion.autoConnect);
+  Options_LookupLogical ("psion.rawdrives:yes",                    MDCfg->psion.rawDrives);
+  Options_LookupValue   ("psion.psirisc:0",                        MDCfg->psion.driver);
+  Options_LookupString  ("psion.apppath:Undefined",                MDCfg->psion.appPath);
+
+
+  /* ---------- Printer options ---------- */
+  Options_LookupLogical ("print.inmenu:no",                        MDCfg->printer.inMenu);
+  Options_LookupLogical ("print.quitpm:no",                        MDCfg->printer.QuitPM);
+  /* HARD-CODED TO DISABLE THESE OPTIONS UNTIL I HAVE TIME TO GET THEM WORKING PROPPERLY */
+  MDCfg->printer.inMenu = 1;
+  MDCfg->printer.QuitPM = 1;
+
+
+  /* ---------- Shortcuts options ---------- */
+  Options_LookupLogical ("short.inmenu:yes",                       MDCfg->shortcut.inMenu);
+  Options_LookupValue   ("short.menupos:0",                        MDCfg->shortcut.menuPos);
+  Options_LookupLogical ("short.quickdrag:no",                     MDCfg->shortcut.quickDrag);
+  Options_LookupLogical ("short.catchPin:no",                      MDCfg->shortcut.catchPinClicks);
+  Options_LookupString  ("short.menuName:Shortcuts",               MDCfg->shortcut.shortcutMenu);
+
+  /* ---------- Networks options ---------- */
+  Options_LookupLogical ("netwk.shinmenu:no",                      MDCfg->network.shareInMenu);
+  Options_LookupLogical ("netwk.shintbar:no",                      MDCfg->network.shareInTbar);
+  Options_LookupLogical ("netwk.shnoicons:no",                     MDCfg->network.shareNoIcons);
+  Options_LookupLogical ("netwk.shnolocal:no",                     MDCfg->network.shareHideLocal);
+  Options_LookupLogical ("netwk.shoneicon:no",                     MDCfg->network.shareOneEntry);
+
+  Options_LookupLogical ("netwk.atinmenu:no",                      MDCfg->network.armTCPInMenu);
+  Options_LookupLogical ("netwk.atintbar:no",                      MDCfg->network.armTCPInTbar);
+  Options_LookupLogical ("netwk.atnoicons:no",                     MDCfg->network.armTCPNoIcons);
+
+
+  /* ---------- Filter options ---------- */
+  Options_LookupLogical ("filtr.wintitle:yes",                     MDCfg->filters.winTitle);
+  Options_LookupLogical ("filtr.pinsave:yes",                      MDCfg->filters.pinSave);
+  Options_LookupLogical ("filtr.dtake:yes",                        MDCfg->filters.doubleTake);
+  Options_LookupLogical ("filtr.flropen:yes",                      MDCfg->filters.filerOpen);
+  Options_LookupLogical ("filtr.tskswtch:yes",                     MDCfg->filters.taskSwitcher);
+
+
+  /* ---------- Toolbar options ---------- */
+  Options_LookupLogical ("toolb.enabled:no",                       MDCfg->toolbar.enabled);
+  Options_LookupValue   ("toolb.disppos:0",                        MDCfg->toolbar.displayPos);
+  Options_LookupValue   ("toolb.hideon:0",                         MDCfg->toolbar.hideWhen);
+  Options_LookupString  ("toolb.addMenu:<none>",                   MDCfg->toolbar.includeMenu);
+  Options_LookupValue   ("toolb.hideon:0",                         MDCfg->toolbar.hideWhen);
+  Options_LookupLogical ("toolb.shtips:yes",                       MDCfg->toolbar.showTips);
+  Options_LookupLogical ("toolb.bigbuts:no",                       MDCfg->toolbar.bigButtons);
+  Options_LookupValue   ("toolb.spacing:4",                        MDCfg->toolbar.spacing);
+  Options_LookupValue   ("toolb.gapsize:8",                        MDCfg->toolbar.gapSize);
+  Options_LookupValue   ("toolb.align:0",                          MDCfg->toolbar.align);
+  Options_LookupValue   ("toolb.orientn:0",                        MDCfg->toolbar.orientation);
+
+  /* Set current icon type from configuration */
+  d->iconType = MDCfg->iconbar.iconType;
+
+
+  /* Initialise - No IDEFS interface found */
+  d->IDEFSVersion = IDEFS_None;
+
+
+  /* ---------- Drop configuration options ---------- */
+  if (foundFile)  MsgTrans_LoseFile(filedesc);
+  else            Options_Save(filename);
+
+  if (!foundFile || !ignoresExists || !filerAppsExists || !shortcutsExists || !aliasesExists)
+    Msgs_Report(MD_Err_noconf, "err.noconf");
+
+  db_fn_end();
+
+
+  return foundFile;
+}
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Options_Save
+   Purpose   : Save the current configuration settings to a file.
+   Status    : Implementation (V1.1.8)
+   V1.1.8    : 13/08/2003 - Update - Added 'filer open' filter option read.
+   V1.1.7    : 15/05/2001 - Update - Added shortcuts pinboard filter support.
+   V1.1.6    : 30/01/2000 - Update - Now handles all iconbar action types.
+   V1.1.5    : 17/01/2000 - Bugfix - Fixed problem with missing configuration
+                                     file checks where DeskLib wouldn't allow
+                                     for system variable existence checks.
+   V1.1.4    : 10/01/2000 - Update - Expanded 'Misc' options (event_info & vsn)
+   V1.1.3    : 08/01/2000 - Update - Added iconbar drag action handlers.
+   V1.1.2    : 28/11/1999 - Update - Removed static arrays, dumped options
+                                     file search code, as this is now done in
+                                     the !Boot file, and introduced options
+                                     file macros.
+   V1.1.1    : 24/11/1999 - Update - Added Shortcuts 'Quick-drag' option
+   V1.1.0    : 18/09/1999 - Update - Now uses macros to assign values, neatens
+                                     code.
+   V1.0.3    : 14/09/1999 - Update - Added Select/Adjust action types.
+   V1.0.2    : 11/09/1999 - Update - Added iconbar appearance & Quit !Printers
+   V1.0.1    : 04/09/1999 - Update - Added printer.inMenu support
+   V1.0.0    : 30/08/1999 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+void Options_Save(char *filename)
+{
+  file_handle  aFile;
+  int          i;
+
+
+  if (!File_Exists(filename))  /* No config file found */
+  {
+    if (XUtil_OSVarExists("Choices$Write"))  /* New Boot structure */
+      if (!File_Exists("<Choices$Write>.MiniDisc"))
+        OS_CLI("cdir <Choices$Write>.MiniDisc");
+  }
+
+  aFile = File_Open(filename, file_WRITE);
+
+  if (aFile == NULL)
+  {
+    Error_Report (file_lasterror->errnum, file_lasterror->errmess);
+
+    return;  /* Exit procedure here on error */
+  }
+
+  /* ---------- Top bits ---------- */
+  File_printf(aFile, "# -------------------------------\n#   MiniDisc configuration file\n# -------------------------------\n");
+
+  /* ---------- Iconbar Options ---------- */
+  File_printf(aFile, "#\n# Iconbar options\n# ---------------\n");
+  #define stw(x) (x == NULL ? "" : x)
+  for (i = 0; i < 8; i++)
+  {
+    if (MDCfg->iconbar.selectType[i] != 99 || i == 0)
+    {
+      File_printf (aFile, "iconbar.seltype%01d:%d\n", i, MDCfg->iconbar.selectType[i]);
+      File_printf (aFile, "iconbar.select%01d:%s\n",  i, stw(MDCfg->iconbar.select[i]));
+    }
+    if (MDCfg->iconbar.adjustType[i] != 99 || i == 0)
+    {
+      File_printf (aFile, "iconbar.adjtype%01d:%d\n", i, MDCfg->iconbar.adjustType[i]);
+      File_printf (aFile, "iconbar.adjust%01d:%s\n",  i, stw(MDCfg->iconbar.adjust[i]));
+    }
+    if (MDCfg->iconbar.dragAction[i] != 99 || i == 0)
+    {
+      File_printf (aFile, "iconbar.dragact%01d:%d\n", i, MDCfg->iconbar.dragAction[i]);
+      File_printf (aFile, "iconbar.dragdir%01d:%s\n", i, stw(MDCfg->iconbar.dragDir[i]));
+    }
+  }
+  #undef stw
+  Options_SaveValue   ("iconbar.icontype:",   MDCfg->iconbar.iconType);
+  Options_SaveString  ("iconbar.udtext:",     MDCfg->iconbar.userDefined);
+
+  /* ---------- Misc Options ---------- */
+  File_printf(aFile, "#\n# Misc options\n# ------------\n");
+  Options_SaveLogical ("misc.discs:",        MDCfg->misc.discsOnly);
+  Options_SaveLogical ("misc.altsub:",       MDCfg->misc.hideControl);
+  Options_SaveValue   ("misc.autoboot:",     MDCfg->misc.bootApps);
+  Options_SaveLogical ("misc.iconsprt:",     MDCfg->misc.quickBoot);
+  Options_SaveLogical ("misc.nosplash:",     MDCfg->misc.noSplash);
+  Options_SaveLogical ("misc.inapps:",       MDCfg->misc.allowInApps);
+  Options_SaveLogical ("misc.nopling:",      MDCfg->misc.hidePling);
+  Options_SaveValue   ("misc.events:",       d->events.value);
+  Options_SaveValue   ("misc.version:",      d->cfgVersion);
+  Options_SaveLogical ("misc.scandevs:",     MDCfg->misc.scanDevices);
+  Options_SaveLogical ("misc.ramcfrm:",      MDCfg->misc.ramConfirm);
+  Options_SaveLogical ("misc.csticon:",      MDCfg->misc.useCustom);
+
+  /* ---------- FileCore Options ---------- */
+  File_printf         (aFile, "#\n# FileCore options\n# ----------------\n");
+  Options_SaveLogical ("filecore.inmenu:",   MDCfg->filecore.inMenu);
+  Options_SaveLogical ("filecore.intbar:",   MDCfg->filecore.inTbar);
+  Options_SaveLogical ("filecore.noicons:",  MDCfg->filecore.removeIcons);
+  Options_SaveLogical ("filecore.grey:",     MDCfg->filecore.greyEmpty);
+  Options_SaveLogical ("filecore.nopublic:", MDCfg->filecore.ignorePublic);
+  Options_SaveLogical ("filecore.dailydir:", MDCfg->filecore.dailySaveDirs);
+  Options_SaveString  ("filecore.ddirname:", MDCfg->filecore.tempDirNameFormat);
+
+  /* ---------- CDFS options ---------- */
+  File_printf         (aFile, "#\n# CDFS options\n# ------------\n");
+  Options_SaveLogical ("cdfs.inmenu:",       MDCfg->cdfs.inMenu);
+  Options_SaveLogical ("cdfs.intbar:",       MDCfg->cdfs.inTbar);
+  Options_SaveLogical ("cdfs.noicons:",      MDCfg->cdfs.removeIcons);
+  Options_SaveLogical ("cdfs.detect:",       MDCfg->cdfs.autoDetect);
+  Options_SaveString  ("cdfs.player:",       MDCfg->cdfs.playerPath);
+  Options_SaveLogical ("cdfs.cdromfs:",      MDCfg->cdfs.cdromfs);
+
+  /* ---------- ResourceFS options ---------- */
+  File_printf         (aFile, "#\n# ResourceFS options\n# ------------------\n");
+  Options_SaveLogical ("resfs.inmenu:",      MDCfg->image.resFSinMenu);
+  Options_SaveLogical ("resfs.intbar:",      MDCfg->image.resFSinTbar);
+  Options_SaveLogical ("resfs.noicon:",      MDCfg->image.resFSremoveIcon);
+  Options_SaveLogical ("resfs.openapps:",    MDCfg->image.resFSopenApps);
+
+  /* ---------- MemFS Options ---------- */
+  File_printf         (aFile, "#\n# MemFS options\n# -------------\n");
+  Options_SaveLogical ("memfs.inmenu:",      MDCfg->image.memFSinMenu);
+  Options_SaveLogical ("memfs.intbar:",      MDCfg->image.memFSinTbar);
+  Options_SaveLogical ("memfs.noicon:",      MDCfg->image.memFSremoveIcon);
+
+  /* ---------- Psion options ---------- */
+  File_printf         (aFile, "#\n# Psion options\n# -------------\n");
+  Options_SaveLogical ("psion.inmenu:",      MDCfg->psion.inMenu);
+  Options_SaveLogical ("psion.intbar:",      MDCfg->psion.inTbar);
+  Options_SaveLogical ("psion.connect:",     MDCfg->psion.autoConnect);
+  Options_SaveLogical ("psion.rawdrives:",   MDCfg->psion.rawDrives);
+  Options_SaveValue   ("psion.psirisc:",     MDCfg->psion.driver);
+  Options_SaveString  ("psion.apppath:",     MDCfg->psion.appPath);
+
+  /* ---------- IDEFS Options ---------- */
+  File_printf         (aFile, "#\n# IDEFS options\n# -------------\n");
+  Options_SaveLogical ("idefs.noempty:",     MDCfg->filecore.hideIDEFS);
+
+
+  /* ---------- Printer options ---------- */
+  File_printf         (aFile, "#\n# Printer options\n# ---------------\n");
+  Options_SaveLogical ("print.inmenu:",      MDCfg->printer.inMenu);
+  Options_SaveLogical ("print.quitpm:",      MDCfg->printer.QuitPM);
+
+
+  /* ---------- Shortcuts options ---------- */
+  File_printf         (aFile, "#\n# Shortcuts options\n# -----------------\n");
+  Options_SaveLogical ("short.inmenu:",      MDCfg->shortcut.inMenu);
+  Options_SaveValue   ("short.menupos:",     MDCfg->shortcut.menuPos);
+  Options_SaveLogical ("short.quickdrag:",   MDCfg->shortcut.quickDrag);
+  Options_SaveLogical ("short.catchPin:",    MDCfg->shortcut.catchPinClicks);
+  Options_SaveString  ("short.menuName:",    MDCfg->shortcut.shortcutMenu);
+
+
+  /* ---------- Network options ---------- */
+  File_printf         (aFile, "#\n# Network options\n# ---------------\n");
+  Options_SaveLogical ("netwk.shinmenu:",    MDCfg->network.shareInMenu);
+  Options_SaveLogical ("netwk.shintbar:",    MDCfg->network.shareInTbar);
+  Options_SaveLogical ("netwk.shnoicons:",   MDCfg->network.shareNoIcons);
+  Options_SaveLogical ("netwk.shnolocal:",   MDCfg->network.shareHideLocal);
+  Options_SaveLogical ("netwk.shoneicon:",   MDCfg->network.shareOneEntry);
+
+  Options_SaveLogical ("netwk.atinmenu:",    MDCfg->network.armTCPInMenu);
+  Options_SaveLogical ("netwk.atintbar:",    MDCfg->network.armTCPInTbar);
+  Options_SaveLogical ("netwk.atnoicons:",   MDCfg->network.armTCPNoIcons);
+
+
+  /* ---------- Filter options ---------- */
+  File_printf         (aFile, "#\n# Filter options\n# --------------\n");
+  Options_SaveLogical ("filtr.wintitle:",    MDCfg->filters.winTitle);
+  Options_SaveLogical ("filtr.pinsave:",     MDCfg->filters.pinSave);
+  Options_SaveLogical ("filtr.dtake:",       MDCfg->filters.doubleTake);
+  Options_SaveLogical ("filtr.flropen:",     MDCfg->filters.filerOpen);
+  Options_SaveLogical ("filtr.tskswtch:",    MDCfg->filters.taskSwitcher);
+
+
+  /* ---------- Toolbar options ---------- */
+  File_printf         (aFile, "#\n# Toolbar options\n# --------------\n");
+  Options_SaveLogical ("toolb.enabled:",    MDCfg->toolbar.enabled);
+  Options_SaveValue   ("toolb.disppos:",    MDCfg->toolbar.displayPos);
+  Options_SaveValue   ("toolb.hideon:",     MDCfg->toolbar.hideWhen);
+  Options_SaveString  ("toolb.addMenu:",    MDCfg->toolbar.includeMenu);
+  Options_SaveLogical ("toolb.shtips:",     MDCfg->toolbar.showTips);
+  Options_SaveLogical ("toolb.bigbuts:",    MDCfg->toolbar.bigButtons);
+  Options_SaveValue   ("toolb.spacing:",    MDCfg->toolbar.spacing);
+  Options_SaveValue   ("toolb.gapsize:",    MDCfg->toolbar.gapSize);
+  Options_SaveValue   ("toolb.align:",      MDCfg->toolbar.align);
+  Options_SaveValue   ("toolb.orientn:",    MDCfg->toolbar.orientation);
+
+
+  File_Close(aFile);
+  File_SetType(filename, filetype_TEXT);
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: options.c,v $
+   Revision 1.7  2004/04/17 14:57:07  jtemple
+   Added task switcher option support.
+   Separated out configuration options into separate file for convenience.
+
+   Revision 1.6  2003/10/05 16:01:03  jtemple
+   General check-in for release testing.
+
+   Revision 1.5  2003/09/14 19:00:23  jtemple
+   Bugfix for freeing memory used in temporary
+   config settings by MDSetup.
+
+   Revision 1.4  2003/09/13 19:57:00  jtemple
+   Replaced Mem_ functions with malloc/free.
+
+   Revision 1.3  2003/08/16 14:21:43  jtemple
+   Added fn 'get_iconbar_action_mod'.  Fixed a long-standing bug with writing oflas into the choices file. :-))
+
+   Revision 1.2  2003/08/13 23:00:55  jtemple
+   Changed PCDelete options into filer-drag-open-dir ones.  Also created a macro type function for reading mouse button action info from the choices file.  Also added CVS tags, and tidied up the comments.
+
+
+--------------------------------------------------------------------------------
+*/
+

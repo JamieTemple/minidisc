@@ -1,0 +1,1221 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/modules/filecore.c                                     *
+ * Purpose   : Filecore specific code                                          *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "minidisc/modules/filecore.h"
+#include "minidisc/modules/idefs.h"
+#include "minidisc/modules/rmfs.h"
+#include "minidisc/modules/scsifs.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "shared/desklib.h"
+
+#include "minidisc/core/sharedlg.h"
+#include "minidisc/core/hideicons.h"
+#include "minidisc/core/toolbar.h"
+#include "minidisc/core/oslib-menu.h"
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/ibmenu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "oslib/filecore.h"
+#include "oslib/fileraction.h"
+#include "oslib/osbyte.h"
+#include "oslib/osmodule.h"
+#include "oslib/osfile.h"
+#include "oslib/osfscontrol.h"
+#include "oslib/osword.h"
+#include "oslib/territory.h"
+#include "oslib/wimp.h"
+
+
+
+/* --------------------------------------------------------------------------- *
+ * External procedure references                                               *
+ * --------------------------------------------------------------------------- */
+extern void Menu_SetFlags      (void *menu, int entry, int ticked, int shaded);
+extern void MenuDump_SubMenu   (void *event);
+
+
+/* THIS NEXT BIT NEEDS SOME MORE THOUGHT FOR A /PROPPER/ IMPLEMENTATION!!!!!! */
+typedef struct
+{
+  int         type;
+  wimp_block  data;
+} oslib_pollblock;
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Global Variables                                                            *
+ * --------------------------------------------------------------------------- */
+bool  controlMenuOpen;  /* Used in the generic submenu warning handler */
+char  TB__DiscName[27];
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_RenameDisc                                             *
+ * Purpose   : Generic 'Rename Disc' handler.                                  *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_RenameDisc (char *fsn_desc, int drivenum, char *newName)
+{
+  char *aString;
+  int   i;
+
+
+  /* Set filing system */
+  sprintf(MD_tmp, "%s::%d.$", fsn_desc, drivenum);
+  xosfscontrol_set_temporary_fs (MD_tmp, &aString, NULL, NULL);
+
+  /* Set up the start of our command string. */
+  sprintf(MD_tmp, "NameDisc :%d", drivenum);
+
+  /* take note of where the end of the string is. */
+  i = strlen(MD_tmp);
+
+  /* Append the new disc name on to the end of our string. */
+  strcpy(MD_tmp + i, newName);
+
+  /* Swap spaces for HARD ones (only in the disc name part). */
+  for (; i < strlen(MD_tmp); i++)  if (MD_tmp[i] == ' ') MD_tmp[i] = 0xa0;
+
+  /* Rename the disc */
+  xos_cli(MD_tmp);
+
+  /* Restore the current filing system. */
+  xosfscontrol_restore_current();
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_OpenRoot                                               *
+ * Purpose   : Generic 'Open $' code.                                          *
+ * Status    : Implementation (V2.0.0)                                         *
+ * V2.0.0    : 08/09/2002 - Recode - Support for ShareFS and CDROMFS added.    *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_OpenRoot (char *fsn, int drive, char *desc)
+{
+  char      runCommand[256],
+            discName[27];
+  os_error *err;
+
+
+  db_fn_begin();
+
+  if (strcmp(fsn, "Share:") == 0)
+  {
+    db_tracef (10, "Opening a shared disc (%s)", desc);
+
+    if (drive == 0)
+    {
+      if (strncmp(desc, "Share:", 6) != 0)
+        sprintf(runCommand, "Filer_Run Share::%s.$", desc);  /* From MiniDisc main menu. */
+      else
+        sprintf(runCommand, "Filer_Run %s.$", desc);         /* From the toolbar.        */
+    }
+    else
+      strcpy(runCommand, "Filer_Run Resources:$.Discs");
+
+    err = xwimp_start_task(runCommand, NULL);
+
+    if (err != NULL)  Error_Report(err->errnum, err->errmess);
+  }
+  else
+  {
+    sprintf(runCommand, "%s:%d.$", fsn, drive);
+
+    db_tracef(10, "Opening filer window for %s", runCommand);
+
+    discName[0] = 0;
+
+    err = xosfscontrol_canonicalise_path (runCommand, discName, NULL, "$", 27, NULL);
+
+    if (err != NULL && strcmp(fsn, "CDROMFS:") == 0)  /* CDROMFS may have bailed. */
+    {
+      db_warnf (10, "Failed to canonicalise the path of %s", runCommand);
+
+      sprintf(runCommand, "CDFS::%d.$", drive);
+
+      discName[0] = 0;
+
+      err = xosfscontrol_canonicalise_path (runCommand, discName, NULL, "$", 27, NULL);
+
+      if (err == NULL)  /* CDFS worked, so now we should be able to call for CDROMFS */
+      {
+        db_tracef(10, "%s was translated into %s", runCommand, discName);
+
+        sprintf(runCommand, "%s:%d.$", fsn, drive);
+
+        discName[0] = 0;
+
+        err = xosfscontrol_canonicalise_path (runCommand, discName, NULL, "$", 27, NULL);
+      }
+    }
+
+    if (err == NULL)
+    {
+      db_tracef(10, "About to open a filer window for %s", discName);
+
+      sprintf(runCommand, "Filer_Run %s", discName);
+
+      err = xwimp_start_task(runCommand, NULL);
+
+      if (err != NULL)
+      {
+        db_errorf (1, "error: %s", err->errmess);
+
+        Error_Report(err->errnum, err->errmess);
+      }
+    }
+    else
+    {
+      db_errorf (1, "error: %s", err->errmess);
+
+      Error_Report(err->errnum, err->errmess);
+    }
+  }
+
+  db_fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_Dismount                                               *
+ * Purpose   : Generic 'Dismount' code.                                        *
+ * Status    : Implementation (V2.0.0)                                         *
+ * V2.0.0    : 15/01/2005 - Re-introduced.                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_Dismount (char *fsn_desc, int drivenum)
+{
+  XUtil_osclif ("%s:Dismount %d", fsn_desc, drivenum);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_ShowFree                                               *
+ * Purpose   : Generic 'Free' code.                                            *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 05/02/2001 - Bugfix - Fixed problems with FreeMap.              *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_ShowFree (char *fsn_desc, int drivenum)
+{
+  char aBuffer[260];
+
+
+  fsn_desc[strlen(fsn_desc)-1] = 0;
+  sprintf (aBuffer, "ShowFree -FS %s %d", fsn_desc, drivenum);
+  xos_cli (aBuffer);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_MenuHideRestore                                        *
+ * Purpose   : Generic 'Hide/Restore filer icons' code.                        *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_MenuHideRestore (char *fsn_desc, int drivenum, void *event, int menuPos)
+{
+  char  aString[buffer_size];
+
+
+  fsn_desc[strlen(fsn_desc)-1] = 0;                             /* Drop the ':'         */
+  Msgs_printf (aString, "menu.restore", fsn_desc);              /* Build message        */
+  if (strcmp(aString, MenuGet_TextAtLevel (event, 1, 0)) == 0)  /* Compare menu text... */
+  {
+    if (strcmp(fsn_desc, "ATAFS") == 0)  strcpy(aString, "ATAFiler");
+    else  sprintf        (aString, "%sFiler", fsn_desc);        /* Remove filer icons   */
+    IconBar_RestoreIcon  (aString);                             /* Restore filer icons  */
+    Msgs_printf          (aString, "menu.remove", fsn_desc);    /* Build message        */
+    MenuUpdate_Item      (event, menuPos, aString);
+  }
+  else
+  {
+    if (strcmp(fsn_desc, "ATAFS") == 0)  strcpy(aString, "ATAFiler");
+    else  sprintf        (aString, "%sFiler", fsn_desc);        /* Remove filer icons   */
+    IconBar_HideIcon     (aString);
+    Msgs_printf          (aString, "menu.restore", fsn_desc);   /* Build message        */
+    MenuUpdate_Item      (event, menuPos, aString);
+  }
+  fsn_desc[strlen(fsn_desc)] = ':';                             /* Restore the ':'      */
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_BuildNameDisc                                          *
+ * Purpose   : Generic code to generate 'Name Disc' control menu entries.      *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/03/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_BuildNameDisc (char *fsn_desc, int drivenum, void *event)
+{
+  char  menuTitle[wimp_MAXNAME],
+        menuText[20],
+        filePath[12];  /* AXXFS::9.$ */
+  char *menuText2;
+
+
+  Msgs_Lookup ("menu.namedn",   menuTitle, wimp_MAXNAME - 1);
+  sprintf     (filePath, "%s:%d.$", fsn_desc, drivenum);
+
+  if(xosfscontrol_canonicalise_path (filePath, menuText, NULL, "$", 27, NULL) == NULL)
+  {
+    menuText[strlen(menuText)-2] = 0;
+    menuText2 = strpbrk(menuText,":") + 2;
+    MenuAttach_WritableSub (menuTitle, menuText2, 10, event);
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_AppRun                                                 *
+ * Purpose   : Execute a custom filing-system control menu option.             *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 22/04/2001 - Bugfix - Now works with non-interactive commands.  *
+ * V1.0.0    : 26/05/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_AppRun (char *fsn_desc, int drivenum, int verify)
+{
+  int     i;
+  wimp_t  taskHandle;
+
+
+  for (i = 0; i < 16; i++)
+  {
+    if (strncmp(MDCfg->filecore.apps[i].fsn_name, fsn_desc, strlen(fsn_desc)-1) == 0)
+    {
+      if ((MDCfg->filecore.apps[i].drives == 1 && drivenum >= 0 && drivenum <= 3) ||
+          (MDCfg->filecore.apps[i].drives == 2 && drivenum >= 4 && drivenum <= 7) ||
+          (MDCfg->filecore.apps[i].drives == 3 && drivenum >= 0 && drivenum <= 7))
+      {
+        if (MDCfg->filecore.apps[i].verify == verify)
+          xwimp_start_task (MDCfg->filecore.apps[i].command, &taskHandle);
+      }
+    }
+  }
+
+
+  return;
+}
+
+
+void FileCore_Share (char *fsn_desc, int drivenum)
+{
+  char  filePath[32],
+        discName[32];
+  int   i;
+
+
+  sprintf(filePath, "%s:%d.$", fsn_desc, drivenum);
+
+  if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 31, NULL) == NULL)
+  {
+    for (i = 0; discName[i] != ':'; i++);
+
+    strcpy(filePath, discName + i + 2);
+    filePath[strlen(filePath) - 2] = 0; /* Remove the '.$' */
+
+    ShareDialog(discName, filePath);
+  }
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_ClickControlMenu                                       *
+ * Purpose   : FileCore specific control sub-menu clicks processor.            *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 26/05/2000 - Update - Added Format / Verify options.            *
+ * V1.0.2    : 11/03/2000 - Update - Now uses more generic code.               *
+ * V1.0.1    : 03/09/1999 - Bugfix - Now correctly handles level 2 menus if no *
+ *                                   control menu has been opened.             *
+ * V1.0.0    : 30/08/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_ClickControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  switch (MenuGet_SubMenuLevel(event))
+  {
+    case 1: /* 'main' control menu options */
+      switch (MenuGet_SubMenuValue(event, 1))
+      {
+        case 0: FileCore_OpenRoot        (fsn_desc, drivenum, NULL);     break;  /* Open root    */
+        case 2: FileCore_Dismount        (fsn_desc, drivenum);           break;  /* Dismount     */
+        case 3: FileCore_AppRun          (fsn_desc, drivenum, FALSE);    break;  /* Format       */
+        case 4:                                                          break;  /* Backup       */
+        case 5: FileCore_Share           (fsn_desc, drivenum);           break;  /* Share...     */
+        case 6: FileCore_AppRun          (fsn_desc, drivenum, TRUE);     break;  /* Verify       */
+        case 7: FileCore_ShowFree        (fsn_desc, drivenum);           break;  /* Free         */
+        case 8: FileCore_MenuHideRestore (fsn_desc, drivenum, event, 8); break;  /* Hide/Restore */
+      }
+      break;
+
+    case 2: /* sub-control-menu options */
+      if (MenuGet_SubMenuValue(event, 2) == 0 && controlMenuOpen)  /* 'Name Disc' option */
+            FileCore_RenameDisc (fsn_desc, drivenum, MenuGet_TextAtLevel(event, 2, 0));
+
+      else  dirMenu_Click (event);  /* Item in directory menu clicked on. */
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_FollowControlMenu                                      *
+ * Purpose   : FileCore specific sub-menu warning processor.                   *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_FollowControlMenu(void *event, char *fsn_desc, int drivenum)
+{
+  switch(MenuGet_SubMenuValue (event, 1))
+  {
+    case 0:  dirMenu_FromDrive      (event, FALSE);               break;  /* Path      */
+    case 1:  FileCore_BuildNameDisc (fsn_desc, drivenum, event);  break;  /* Name disc */
+    case 5:                                                       break;  /* Share     */
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_                                                       *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_ShadeCtlMenuItems(char *fsn_desc, int drivenum, void *aMenu)
+{
+  int i, fpos, vpos, spos;
+
+
+  /* Determine where in the drive control menu 'Format' & 'Verify' are */
+  if (strcmp(fsn_desc, "RMFS:") == 0)
+  {
+    fpos = 3;
+    spos = 4;
+    vpos = 6;
+  }
+
+  else if (strcmp(fsn_desc, "IDEFS:") == 0)
+  {
+    fpos = 0;
+    spos = 4;
+    vpos = 7;
+  }
+
+  else
+  {
+    fpos = 3;
+    spos = 5;
+    vpos = 6;
+  }
+
+  /* Unshade the 'Share' option if 'ShareFS' is running */
+/*if (XUtil_TaskGetHandle("ShareFS") != NULL)*/
+  if (XUtil_ModEnsure("Freeway"))
+      Menu_SetFlags(aMenu, spos, 0, 0);
+
+  /* Unshade Format and Verify options where appropriate... */
+  for (i = 0; i < 16; i++)
+  {
+    if (strncmp(MDCfg->filecore.apps[i].fsn_name, fsn_desc, strlen(fsn_desc)-1) != 0)
+      continue;
+
+    if ((MDCfg->filecore.apps[i].drives == 1 && drivenum >= 0 && drivenum <= 3) ||
+        (MDCfg->filecore.apps[i].drives == 2 && drivenum >= 4 && drivenum <= 7) ||
+        (MDCfg->filecore.apps[i].drives == 3 && drivenum >= 0 && drivenum <= 7))
+    {
+           if (MDCfg->filecore.apps[i].verify == TRUE  && vpos != 0)
+               Menu_SetFlags(aMenu, vpos, 0, 0);
+
+      else if (MDCfg->filecore.apps[i].verify == FALSE && fpos != 0)
+               Menu_SetFlags(aMenu, fpos, 0, 0);
+    }
+  }
+
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_                                                       *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_ControlMenuText(char *fsn_desc, char *controlMenuText, int drivenum, void *event,
+                              char *menuText, char *discName)
+{
+  char  filePath[12],
+        lastItem[32],
+        scratch[260];
+  bool  noDisc = TRUE;
+
+
+  sprintf(filePath, "%s:%d.$", fsn_desc, drivenum);
+  if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+    noDisc = FALSE;
+  if (noDisc)  sprintf(discName, "%s", filePath);
+  sprintf(menuText, "menu.%s", controlMenuText);
+  Msgs_Lookup (menuText, scratch, 260);
+
+  /* Store FSN name in aNewMenu */
+  strncpy(menuText, fsn_desc, strlen(fsn_desc)-1);
+  menuText[strlen(fsn_desc)-1] = 0;
+
+  /* Calculate filer module task name */
+  /* Note that we're assuming what the filer task name is. */
+       if (strcmp(menuText, "ATAFS") == 0)  strcpy  (filePath, "ATA Filer");
+  else if (strcmp(menuText, "IDEFS") == 0)  strcpy  (filePath, "IDEFSFiler");
+  else                                      sprintf (filePath, "%s Filer", menuText);
+
+  /* Append restore/remove item to the bottom of the control menu definition */
+  if (XUtil_TaskGetHandle (filePath) == NULL)  Msgs_printf (lastItem, "menu.restore", menuText);
+  else                                         Msgs_printf (lastItem, "menu.remove",  menuText);
+
+  /* Build the control menu */
+  sprintf(menuText, ">%c%s|%s|%s", noDisc ? '~' : ' ', discName, scratch, lastItem);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_FollowGeneric                                          *
+ * Purpose   : Generic (ish) menu warning processor.                           *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 10/02/2001 - Bugfix - Now correctly decides if we should        *
+ *                                   display control submenus or not.          *
+ * V1.0.1    : 23/01/2000 - Update - Now puts a 'restore' or 'remove' option   *
+ *                                   on the bottom of the control menu.        *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     : (Should) be OK for all filecore-type filing systems.            *
+ * --------------------------------------------------------------------------- */
+void FileCore_FollowGeneric(MenuEventType   mevent,
+                            char           *fsn_desc,
+                            char           *controlMenuText, /* ie. "filecore" */
+                            int             drivenum,
+                            void           *event,
+                            controlmenu_fn  controlMenuProc)
+{
+  char      discName[27],
+            aNewMenu[260];
+  int       subMenuLevel = MenuGet_SubMenuLevel(event);
+  bool      altPressed   = XUtil_KeyPressed(-3), /* Alt check */
+            controlMenu  = TRUE; /* Default: show control menu */
+  void     *aMenu;
+
+
+  discName[0] = 0;  /* Flag name as empty string */
+
+  if (MDCfg->misc.hideControl == 0 && !altPressed)  controlMenu = FALSE;
+  if (MDCfg->misc.hideControl == 1 &&  altPressed)  controlMenu = FALSE;
+
+  if (subMenuLevel == 0 && controlMenu)                       /* Show filecore control submenu    */
+  {
+    MenuDump_SubMenu(event);
+
+    FileCore_ControlMenuText(fsn_desc, controlMenuText, drivenum, event, aNewMenu, discName);
+
+    aMenu = (void *)MenuCreate_Sub (discName, aNewMenu, event);
+
+    FileCore_ShadeCtlMenuItems(fsn_desc, drivenum, aMenu);
+
+    MenuCreate_SubMenu(aMenu, event);
+
+    controlMenuOpen = TRUE;
+  }
+
+  else if (subMenuLevel == 0 && !controlMenu)                 /* Show root menu for drive         */
+  {
+    MenuDump_SubMenu  (event);
+
+    dirMenu_SetFlags  ();
+    dirMenu_FromDrive (event, FALSE);
+
+    controlMenuOpen = FALSE;
+  }
+
+  else if (subMenuLevel == 1 && controlMenuOpen) controlMenuProc (event, fsn_desc, drivenum);
+  else
+  {
+    dirMenu_SetFlags  ();
+    dirMenu_FromDrive (event, FALSE);
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_ClickGeneric                                           *
+ * Purpose   : Dispatch a click event to a fsn-specific handler routine.       *
+ * Status    : Implementation (V1.0.4)                                         *
+ * V1.0.4    : 08/09/2002 - Update - Now uses generic OpenRoot function.       *
+ * V1.0.3    : 22/06/2002 - Bugfix - CDROMFS control menus fixed.              *
+ * V1.0.2    : 04/11/2001 - Bugfix - CDFS Audio Player was not being called.   *
+ * V1.0.1    : 03/05/2001 - Bugfix - Fixed a bug with hidden control menus.    *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_ClickGeneric(MenuEventType   mevent,
+                           char           *fsn_desc,
+                           int             drivenum,
+                           void           *event,
+                           controlmenu_fn  controlMenuProc)
+{
+  int  subMenuLevel = MenuGet_SubMenuLevel(event);
+
+
+  MDTrace(1, "menu level was %d", subMenuLevel);
+
+  if (subMenuLevel == 0)  /* A MiniDisc main menu click. */
+    FileCore_OpenRoot (fsn_desc, drivenum, MenuGet_TextAtLevel(event, 0, 0));
+
+
+  /* NOTE: CDFS has an Audio Player option at the top of the menu. */
+  else if (subMenuLevel < 3 && controlMenuOpen &&
+           (MenuGet_SubMenuValue (event, 1)  > 0 ||
+            strcmp(fsn_desc,"CDFS:")        == 0 ||
+            strcmp(fsn_desc,"CDROMFS:")     == 0)
+          )
+
+    controlMenuProc (event, fsn_desc, drivenum);
+
+
+  else
+    dirMenu_Click (event);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_Actions                                                *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case follow:
+      FileCore_FollowGeneric (mevent, fsn_desc, "filecore", drivenum, event,
+                              FileCore_FollowControlMenu);
+      break;
+
+      case click:
+      FileCore_ClickGeneric  (mevent, fsn_desc,             drivenum, event,
+                              FileCore_ClickControlMenu);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_MenuExtend                                             *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 05/06/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *FileCore_MenuExtend(void *mainmenu, char *discName, char *spriteName, char *fsn, int device)
+{
+  int   i;
+  char  spriteBuffer[14];
+
+
+  if (MDCfg->misc.useCustom == 0)
+  {
+    for (i = 0; i < 20; i++)
+    {
+      if (strncmp(discName, MDCfg->icons[i].device, strlen(discName)) == 0)
+          break;  /* Match named device. */
+
+      if (strncmp(fsn, MDCfg->icons[i].device, strlen(fsn)) == 0 &&
+          MDCfg->icons[i].device[strlen(MDCfg->icons[i].device)-1] - 48 == device)  break;
+    }
+
+    if (i != 20)
+    {
+      sprintf(spriteBuffer, "md_%s", MDCfg->icons[i].sprite);
+      if (XUtil_spriteExists(spriteBuffer))
+      {
+        sprintf(spriteBuffer, "smd_%s", MDCfg->icons[i].sprite);
+        spriteName = spriteBuffer;
+      }
+    }
+  }
+
+  mainmenu = ibMenu_Add (mainmenu, discName, spriteName, 1, 0);
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_ListDrives                                             *
+ * Purpose   : Append FileCore drives on to the main MiniDisc menu.            *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 04/11/2001 - Bugfix - Now recognises ADFS:0-3 as floppys.       *
+ * V1.0.0    : 03/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *FileCore_ListDrives (char *device_name, int hard, int floppy, void *mainmenu)
+{
+  os_error *anError = NULL;
+  int       adfsFloppy;
+  char      buffer[buffer_size],
+            filePath[12],
+            discName[27],
+            iconName[10];
+
+
+  db_fn_begin();
+
+  db_tracef(100, "Displaying FileCore (%s - %d %d) drives in main MD menu", device_name,hard,floppy);
+
+  /* Hard discs */
+  for (; hard > 0; --hard)
+  {
+    DriveMenuSize++;
+    sprintf(filePath, "%s:%d.$", device_name, hard + 3);
+    discName[0] = 0;
+    if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+    {
+      discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+      mainmenu = FileCore_MenuExtend(mainmenu, discName, "smd_hd", device_name, hard + 3);
+    }
+    else  /* Could not read the disc label */
+    {
+      if (MDCfg->filecore.greyEmpty == 0)  sprintf(buffer, "~%s:%d", device_name, hard + 3);
+      else                                 sprintf(buffer, "%s:%d", device_name, hard + 3);
+      mainmenu = FileCore_MenuExtend(mainmenu, buffer, "smd_rd", device_name, hard + 3);
+    }
+    proceduresInfo[DriveMenuSize].proc_ptr = FileCore_Actions;
+    proceduresInfo[DriveMenuSize].drivenum = hard + 3;
+    strcpy(proceduresInfo[DriveMenuSize].fsn_desc, device_name);
+  }
+
+
+  /* Floppy Discs */
+  for (; floppy > 0; floppy--)
+  {
+    DriveMenuSize++;
+    sprintf(filePath, "%s:%d.$", device_name, floppy - 1);
+    discName[0] = 0;
+
+    if (strcmp(device_name, "RAM:") == 0)  strcpy(iconName, "smd_ram");
+    else                                   strcpy(iconName, "smd_hd");
+
+    if ((strcmp(device_name, "ADFS:") != 0))
+    {
+      adfsFloppy = FALSE;
+      anError    = xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL);
+    }
+    else  /* skip ADFS::0 - 3 drive scans */
+    {
+      adfsFloppy = TRUE;
+      strcpy(iconName, "smd_fd");
+    }
+
+    if (anError == NULL && !adfsFloppy)
+    {
+      discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+      mainmenu = FileCore_MenuExtend(mainmenu, discName, iconName, device_name, floppy - 1);
+    }
+    else  /* Could not read the disc label */
+    {
+      if (MDCfg->filecore.greyEmpty == 0 && !adfsFloppy)
+        sprintf(buffer, "~%s:%d", device_name, floppy - 1);
+      else
+        sprintf(buffer,  "%s:%d", device_name, floppy - 1);
+
+      mainmenu = FileCore_MenuExtend(mainmenu, buffer, adfsFloppy ? iconName : "smd_rd",
+                                     device_name, floppy - 1);
+    }
+    proceduresInfo[DriveMenuSize].proc_ptr = FileCore_Actions;
+    proceduresInfo[DriveMenuSize].drivenum = floppy - 1;
+    strcpy(proceduresInfo[DriveMenuSize].fsn_desc, device_name);
+  }
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_TBDataSave                                             *
+ * Purpose   : Process 'Data Save' messages generated as a result of files     *
+ *             being dragged to the MiniDisc toolbar.                          *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 03/03/2002 - Initial Implementation.                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_TBDataSave (void *event)
+{
+  int           i;
+  wimp_message *epb = (wimp_message *)&(((oslib_pollblock *)event)->data.message);
+  wimp_message  message;
+
+
+  MDTrace (1, "DataSave");
+
+  /* Expand path... */
+  xosfscontrol_canonicalise_path("<Wimp$Scrap>", MD_tmp, 0, "$", buffer_size, NULL);
+
+  /* Find leafname, and replace it with the saveas filename */
+  for (i = strlen(MD_tmp); MD_tmp[i] != '.'; i--);
+  strcpy(MD_tmp+i+1, epb->data.data_xfer.file_name);
+
+  /* Rewrite <Wimp$Scrap> */
+  xos_set_var_val("Wimp$Scrap", (byte const *)MD_tmp, strlen(MD_tmp), 0,
+                  os_VARTYPE_LITERAL_STRING, NULL, NULL);
+
+  /* Send save ack message */
+  message.size                     = 60;
+  message.sender                   = (wimp_t) XUtil_TaskGetHandle("MiniDisc");  //d->task;
+  message.your_ref                 = epb->my_ref;
+  message.action                   = message_DATA_SAVE_ACK;
+  message.data.data_xfer.w         = epb->data.data_xfer.w;
+  message.data.data_xfer.i         = epb->data.data_xfer.i;
+  message.data.data_xfer.pos.x     = epb->data.data_xfer.pos.x;
+  message.data.data_xfer.pos.y     = epb->data.data_xfer.pos.y;
+  message.data.data_xfer.est_size  = -1;
+  message.data.data_xfer.file_type = epb->data.data_xfer.file_type;
+  strcpy(message.data.data_xfer.file_name, "<Wimp$Scrap>");
+  message.data.data_xfer.file_name[12] = 0;
+  xwimp_send_message(wimp_USER_MESSAGE, &message, epb->sender);
+
+  /* Send saved message */
+  message.action = message_DATA_SAVED;
+  xwimp_send_message(wimp_USER_MESSAGE, &message, epb->sender);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_GetSaveDir                                             *
+ * Purpose   : Calculates the destination directory for toolbar drive buttons. *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 14/09/2002 - Initial Implementation.                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+bool FileCore_GetSaveDir(char *fsn, int drive, char *shareName, char *path)
+{
+  char                       varBuffer[128],
+                             dateBuffer[12];
+  fileswitch_object_type     type;
+  oswordreadclock_utc_block  utc;
+  bool                       isShareFS;
+  int                        i;
+
+
+  /* ShareFS pathnames are a bit different, so check to see if we need to munge paths. */
+  isShareFS = ((strcmp(fsn, "Share:") == 0) ? TRUE : FALSE);
+
+  /* Not a 'real' share, so bail. */
+  if (isShareFS && drive == 1)  return FALSE;
+
+  /* See if a filing-system specific default quick save dir variable is set. */
+  strcpy(path, fsn);
+  path[strlen(path) - 1] = 0;
+  strcat(path, "Filer$DefaultDir");
+
+  if (xos_read_var_val(path, varBuffer, 128, 0, os_VARTYPE_STRING, &i, NULL, NULL) == NULL)
+  {
+    varBuffer[i] = 0;
+
+    sprintf(path, "%s:%d.$.%s", fsn, drive, varBuffer);
+
+    xosfile_read_stamped_no_path(path, &type, NULL, NULL, NULL, NULL, NULL);
+
+    if (type != fileswitch_NOT_FOUND)  goto foundPath;  // Default directory exists...
+  }
+
+  /* See if there is a 'Public' directory. */
+  if (isShareFS)  sprintf(path, "%s.$.Public", shareName);
+  else            sprintf(path, "%s:%d.$.Public", fsn, drive);
+
+  xosfile_read_stamped_no_path(path, &type, NULL, NULL, NULL, NULL, NULL);
+
+  /* Public directory exists, so save into there. */
+  if (type != fileswitch_NOT_FOUND && MDCfg->filecore.ignorePublic)  goto foundPath;
+
+
+  /* No Public directory, so save into root. */
+  if (isShareFS)  sprintf(path, "%s.$", shareName);
+  else            sprintf(path, "%s:%d.$", fsn, drive);
+
+
+foundPath:
+
+
+  /* I'm not sure, but we may need to canonicalise the path at this point. ???? */
+
+  /* Now that we have a destination, append a dated directory if required. */
+  if (MDCfg->filecore.dailySaveDirs == 0)
+  {
+    /* Create todays dated directory name... */
+    utc.op = oswordreadclock_OP_UTC;
+    xoswordreadclock_utc(&utc);
+    xterritory_convert_date_and_time (territory_CURRENT, &utc.utc, dateBuffer, 12,
+                                      MDCfg->filecore.tempDirNameFormat, NULL);
+
+    /* Append the dated directory to the destination path. */
+    strcat(path, dateBuffer);
+
+    /* Check to see if we need to create todays directory... */
+    xosfile_read_stamped_no_path(path, &type, NULL, NULL, NULL, NULL, NULL);
+
+    /* Could not find todays directory, so let's create it now... */
+    if (type == fileswitch_NOT_FOUND)
+      xosfile_create_dir(path, 0);
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_TBDataLoad                                             *
+ * Purpose   : Process 'Data Load' messages generated as a result of files     *
+ *             being dragged to the MiniDisc toolbar.                          *
+ * Status    : Implementation (V1.1.0)                                         *
+ * V1.1.0    : 14/09/2002 - Update - Now uses the more generic GetSaveDir code.*
+ * V1.0.2    : 14/09/2002 - Update - Added 'Daily saves' facility.             *
+ * V1.0.1    : 20/06/2002 - Update - Added ShareFS support.                    *
+ * V1.0.0    : 02/03/2002 - Initial Implementation.                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_TBDataLoad(void *event)
+{
+  int           i,
+                keyStatus;
+  wimp_t        newtask;
+  wimp_message *epb = (wimp_message *)&(((oslib_pollblock *)event)->data.message);
+
+
+  MDTrace (1, "DataLoad");
+
+  /* Expand path... */
+  xosfscontrol_canonicalise_path(epb->data.data_xfer.file_name,MD_tmp, 0, "$", buffer_size, NULL);
+
+  /* Split path / leafname */
+  for (i = strlen(MD_tmp); MD_tmp[i] != '.'; i--);
+  MD_tmp[i] = 0;
+
+  newtask = wimp_start_task("Filer_Action");
+
+  xfileraction_send_selected_directory (newtask, MD_tmp);
+  xfileraction_send_selected_file      (newtask, MD_tmp + i + 1);
+
+  /* Calculate the destination path name. */
+  if (!FileCore_GetSaveDir(tbButtons[epb->data.data_xfer.i].interface,
+                           tbButtons[epb->data.data_xfer.i].device,
+                           tbButtons[epb->data.data_xfer.i].helpText, MD_tmp))
+    return;  // Failed to get a path, so bail.
+
+
+  /* Check to see if SHIFT is being held down. */
+  xosbyte1(osbyte_IN_KEY, -1, 255, &keyStatus);
+
+  /* Do send start opertation... */
+  if (strcmp(epb->data.data_xfer.file_name, "<Wimp$Scrap>") == 0 || keyStatus == 255)
+  {
+    MDTrace(1, "DATALOAD : Moving file %s into %s", epb->data.data_xfer.file_name, MD_tmp);
+    xfileractionsendstartoperation_move(newtask, 0, MD_tmp, strlen(MD_tmp) + 1);
+  }
+  else
+  {
+    MDTrace(1, "DATALOAD : Copying file %s into %s", epb->data.data_xfer.file_name, MD_tmp);
+    xfileractionsendstartoperation_copy(newtask, 0, MD_tmp, strlen(MD_tmp) + 1);
+  }
+
+  /* Send a 'dataload'-ack message */
+  epb->action   = message_DATA_LOAD_ACK;
+  epb->your_ref = epb->my_ref;
+  wimp_send_message(wimp_USER_MESSAGE_RECORDED, epb, epb->sender);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_TBMouseClick                                           *
+ * Purpose   : Process mouse clicks on the toolbar buttons.                    *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 20/06/2002 - Update - Added ShareFS support.                    *
+ * V1.0.0    : 02/03/2002 - Initial implementation.                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_TBMouseClick(oslib_pollblock *event)
+{
+  wimp_pointer  ptr;
+  int           i;
+  char          runCommand[256];
+  os_error     *err;
+
+
+  MDTrace (1, "MouseClick");
+
+  i = (int)(event->data.pointer.i);
+
+  wimp_get_pointer_info (&ptr);  // I'm not sure if this is necessary!
+
+  switch(ptr.buttons)
+  {
+    case wimp_CLICK_ADJUST:  // Display a directory menu
+      dirMenu_SetFlags();
+
+      if (strcmp(tbButtons[i].interface, "Share:") == 0)
+      {
+        if (tbButtons[i].device == 0)
+          sprintf(TB__DiscName, "%s.$", tbButtons[i].helpText);
+
+        else
+          strcpy(TB__DiscName, "Resources:$.Discs");
+
+        dirMenu_FromPath (TB__DiscName, event);  // Build our menu...
+      }
+      else
+      {
+        sprintf(runCommand, "%s:%d.$", tbButtons[i].interface, tbButtons[i].device);
+        TB__DiscName[0] = 0;
+
+        err = xosfscontrol_canonicalise_path (runCommand, TB__DiscName, NULL,"$", 27, NULL);
+
+        if (err == NULL)                            // Found a decent path...
+          dirMenu_FromPath (TB__DiscName, event);   // Build our menu...
+        else
+          Error_Report(err->errnum, err->errmess);
+      }
+      break;
+
+    case wimp_CLICK_SELECT:  // Open the root directory of the drive
+      if (XUtil_KeyPressed(-2))   // Ctrl pressed, so open temp save directory instead.
+      {
+        strcpy(MD_tmp, "Filer_OpenDir ");
+        if (FileCore_GetSaveDir(tbButtons[i].interface, tbButtons[i].device, tbButtons[i].helpText,
+                                MD_tmp + 14))
+          wimp_start_task(MD_tmp);
+        else
+          FileCore_OpenRoot (tbButtons[i].interface, tbButtons[i].device, tbButtons[i].helpText);
+      }
+      else
+        FileCore_OpenRoot (tbButtons[i].interface, tbButtons[i].device, tbButtons[i].helpText);
+      break;
+
+    case wimp_CLICK_MENU:  break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_TBHandler                                              *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+int FileCore_TBHandler (void *event, void *reference)
+{
+  switch ((int)reference)
+  {
+    case 0:  FileCore_TBDataLoad   (event);                     break;
+
+    case 1:  FileCore_TBDataSave   (event);                     break;
+
+    case 2:  FileCore_TBMouseClick ((oslib_pollblock *)event);  break;
+
+    default: MDTrace               (1, "Unidentified event");   break;
+  }
+
+
+  return TRUE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_AddTBIcon                                              *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_AddTBIcon(char *spriteName, char *bigSprite, char *infoText, char *fsn, int device)
+{
+  int  i,
+       icon;
+  char SmallSpriteName[16],
+       BigSpriteName[16];
+
+
+  // Search for replacement icons.
+  for (i = 0; i < 20; i++)
+  {
+    if (strcmp(infoText, MDCfg->icons[i].device) == 0)  break;  // Match named device.
+
+    if (strncmp(fsn, MDCfg->icons[i].device, strlen(fsn)) == 0 &&
+        MDCfg->icons[i].device[strlen(MDCfg->icons[i].device)-1] - 48 == device)  break;
+  }
+
+  // Did not match a sprite name
+  if (i == 20)
+    icon = ToolBar_AddIcon(spriteName, 0, bigSprite, infoText, (tb_proc) FileCore_TBHandler);
+
+  else
+  {
+    sprintf(SmallSpriteName, "smb_%s", MDCfg->icons[i].sprite);
+    sprintf(BigSpriteName,   "b_%s",   MDCfg->icons[i].sprite);
+
+    icon = ToolBar_AddIcon(SmallSpriteName,0,BigSpriteName, infoText, (tb_proc)FileCore_TBHandler);
+  }
+
+  tbButtons[icon].device = device;
+  strcpy(tbButtons[icon].interface, fsn);
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : FileCore_AddTBIcons                                             *
+ * Purpose   : Stick some icons for FileCore devices on to the toolbar.        *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 28/08/2003 - Update - Now uses standard RO sprites for 'big'    *
+ *                                   buttons by default.                       *
+ * V1.0.2    : 03/09/2002 - Bugfix - Current filing system is now restored.    *
+ * V1.0.1    : 22/03/2002 - Update - Added ignores lists support.              *
+ * V1.0.0    : 03/03/2002 - Initial Implementation.                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void FileCore_AddTBIcons (void)
+{
+  char  aString[buffer_size],
+        filePath[12],
+        discName[27],
+        iconName[10];
+  int   i,
+        hd,
+        fd,
+        mod,
+        inst = 0;
+  char *postfix;
+  void *ws;
+  bool  ignoreMe;
+
+
+  if (MDCfg->filecore.inTbar != 0)  return;
+
+  xosmodule_lookup    ("FileCore%Base", &mod, NULL, NULL, NULL, NULL);
+  xosmodule_enumerate (mod, inst, &mod, &inst, NULL, NULL, &postfix);
+
+  while (inst != 0)
+  {
+    /* Check ignores list */
+    for (i = 0, ignoreMe = FALSE; i < 16; i++)
+    {
+      if (MDCfg->ignoreFSNs[i*24] == 0) continue;
+      if (strncmp(&MDCfg->ignoreFSNs[i*24], postfix, strlen(&MDCfg->ignoreFSNs[i*24])) == 0)
+        ignoreMe = TRUE;
+    }
+
+    /* Found an entry in the ignores list, so skip the rest of this junk. */
+    if (ignoreMe)
+    {
+      xosmodule_enumerate (mod, inst, &mod, &inst, NULL, NULL, &postfix);
+      continue;
+    }
+
+    sprintf(aString,"%s:", postfix);
+
+    xosfscontrol_set_temporary_fs (aString, NULL, NULL, NULL);
+    xosfscontrol_read_module_base (NULL, &ws);
+    xfilecore_drives              (ws, NULL, &fd, &hd);
+    xosfscontrol_restore_current  ();
+
+    if (strcmp(aString, "RMFS:") == 0)       RMFS_AddTBIcons();
+
+    else if (strcmp(aString, "IDEFS:") == 0) IDEFS_AddTBIcons(hd, fd);
+
+    else if (strcmp(aString, "SCSI:") == 0)  SCSIFS_AddTBIcons();
+
+    /* GENERIC FILECORE code */
+    else
+    {
+      /* FIXED DRIVES */
+      for (; hd > 0; --hd)
+      {
+        sprintf(filePath, "%s:%d.$", aString, hd + 3);
+        discName[0] = 0;
+        if (xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+        {
+          discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+          FileCore_AddTBIcon("md_hd", "harddisc", discName, aString, hd+3);
+        }
+        else  /* Could not read the disc label */
+        {
+          filePath[strlen(filePath) - 2] = 0; /* Remove the '.$' */
+          FileCore_AddTBIcon("md_rd", "floppydisc", filePath, aString, hd+3);
+        }
+      }
+
+      /* REMOVABLE DRIVES */
+      for (; fd > 0; fd--)
+      {
+        sprintf(filePath, "%s:%d.$", aString, fd - 1);
+        discName[0] = 0;
+
+        if (strcmp(aString, "RAM:") == 0)  strcpy(iconName, "md_ram");
+        else                               strcpy(iconName, "md_hd");
+
+        /* skip ADFS::0 - 3 drive scans */
+        if ((strcmp(aString, "ADFS:") != 0))
+        {
+          if(xosfscontrol_canonicalise_path (filePath, discName, NULL, "$", 27, NULL) == NULL)
+          {
+            discName[strlen(discName) - 2] = 0; /* Remove the '.$' */
+            FileCore_AddTBIcon(iconName, strcmp(aString, "RAM:") == 0 ? "ramfs" : "harddisc",
+                               discName, aString, fd - 1);
+          }
+          else
+          {
+            filePath[strlen(filePath) - 2] = 0; /* Remove the '.$' */
+            FileCore_AddTBIcon("md_hd", "harddisc", filePath, aString, fd-1);
+          }
+        }
+        else  /* ADFS 0 - 3 */
+        {
+          filePath[strlen(filePath) - 2] = 0; /* Remove the '.$' */
+          FileCore_AddTBIcon("md_fd", "floppydisc", filePath, aString, fd-1);
+        }
+
+      }
+    }
+
+    xosmodule_enumerate (mod, inst, &mod, &inst, NULL, NULL, &postfix);
+  }
+}
+
+

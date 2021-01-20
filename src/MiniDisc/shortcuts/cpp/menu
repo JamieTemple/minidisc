@@ -1,0 +1,165 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : minidisc/shortcuts/menu.c                                       *
+ * Purpose   : Shortcuts specific code.                                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "minidisc/shortcuts/menu.h"
+#include "minidisc/shortcuts/shortcuts.h"
+
+#include "minidisc/core/menu.h"
+
+#include "shared/utilities.h"
+
+#include "DeskLib:Mem.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcut_MenuAddTBIcon                                          *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 06/10/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcut_MenuAddTBIcon (menu_info *scut, int index, char *menuName)
+{
+  Shortcuts_AddTBIcon ("md!smenu", 0, "b_scut", scut->label, menuName, index);
+}
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcut_MenuDispose                                            *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 06/10/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcut_MenuDispose (shortcuts_menu **item)
+{
+  free ((*item)->shortcut.menu.label);
+  free ((*item)->shortcut.menu.intMenuName);
+}
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_MenuAction                                            *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 11/07/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_MenuAction(shortcuts_menu *current, event_pollblock *event, int callType)
+{
+  message_block  message;
+
+
+  db->fn_begin();
+
+  message.header.sender  = d->task;
+  message.header.myref   = NULL;
+  message.header.yourref = NULL;
+  message.header.action  = (message_action)MDMsg_ShowShortcut;
+  message.header.size    = sizeof(message);
+
+  strcpy(message.data.bytes, current->shortcut.menu.intMenuName);
+
+  Wimp_SendMessage(event_SEND, &message, d->task, NULL);
+
+  db->tracef(1, "menu : %s", current->shortcut.menu.intMenuName);
+
+  UNUSED(event);
+  UNUSED(callType);
+
+  db->fn_end();
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Shortcuts_AddMenu                                               *
+ * Purpose   : Add another shortcuts menu to the current shortcuts menu.       *
+ * Status    : Implementation (V1.0.3)                                         *
+ * V1.0.3    : 05/08/2001 - Bugfix - Corrected keybaord modifier buffer where  *
+ *                                   no modifier exists. (used to show junk)   *
+ *                                   Also, now shades menu entries which dont  *
+ *                                   point to a menu. (used in builder code)   *
+ * V1.0.2    : 27/02/2000 - Update - Displays keyboard shortcuts in menus.     *
+ * V1.0.1    : 11/12/1999 - Update - Now supports rule-offs.                   *
+ * V1.0.0    : 22/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void Shortcuts_AddMenu(menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry)
+{
+  menu_item *menuItem;
+  int        buffSize;
+  char       kMod[20];
+  int        i;
+
+
+  memset(kMod, 0, 20);  // initialise the keyboard modifier buffer
+
+  menuItem                        = MenuGet_Item(aMenu, entryNumber);
+  menuItem->iconflags.value       = 0x7000113;
+  menuItem->iconflags.data.shaded = 1;  // disabled by default
+  buffSize                        = strlen(menuEntry->shortcut.menu.label);
+
+  for (i = 0; i < maximumNumberOfShortcuts; i++)
+  {
+    if (shortcutsArray[i].menuName[0] != 0)
+    {
+      if (strcmp(menuEntry->shortcut.menu.intMenuName, shortcutsArray[i].menuName) == 0)
+      {
+        menuItem->iconflags.data.shaded = 0;  // enable if it exists.
+        if (shortcutsArray[i].e_type == keyboard)
+        {
+          kMod[0] = ' '; /* A HARD space (so we can determine the end of an entry */
+          kMod[1] = ' '; /* A normal space to make sure the WIMP right-justifies shortcut text */
+          XUtil_SetKeyText (shortcutsArray[i].event.keyboard.value, kMod+2);
+        }
+        buffSize = buffSize + strlen(kMod);
+      }
+    }
+  }
+
+  menuItem->icondata.indirecttext.buffer = malloc(buffSize+1);
+  strcpy(menuItem->icondata.indirecttext.buffer, menuEntry->shortcut.menu.label);
+  strcat(menuItem->icondata.indirecttext.buffer, kMod);
+  menuItem->icondata.indirecttext.bufflen = buffSize;
+
+  menuItem->icondata.indirecttext.validstring = malloc(12);
+  strcpy(menuItem->icondata.indirecttext.validstring, "smd!smenu");
+
+  menuItem->menuflags.data.ticked     = 0;
+  menuItem->menuflags.data.shaded     = 0;
+  menuItem->menuflags.data.openshaded = 0;
+  menuItem->menuflags.data.writable   = 0;
+  menuItem->menuflags.data.dotted     = menuEntry->ruledOff;
+  menuItem->menuflags.data.notifysub  = 1;
+  menuItem->submenu.value             = 1;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+

@@ -1,0 +1,76 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/Shared/desklib.h,v $
+
+   $Revision: 1.1 $
+   $Date: 2003/09/28 15:15:42 $
+
+   MiniDisc wrapper for OSLib-friendly DeskLib functions.
+
+--------------------------------------------------------------------------------
+*/
+
+
+#ifndef __SHARED_DESKLIB_H
+#define __SHARED_DESKLIB_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+   From DeskLib:Msgs.h
+--------------------------------------------------------------------------------
+*/
+extern BOOL Msgs_Lookup      (char *tag, char *result, int maxlength);
+extern void Msgs_printf      (char *result, char *formattag, ...);
+extern BOOL Msgs_LoadFile    (char *leafname);
+extern void Msgs_DropGroup   (char *grouptag);
+extern void Msgs_Report      (int errnum, char *tag, ...);
+extern void Msgs_ReportFatal (int errnum, char *tag, ...);
+
+
+
+/*
+--------------------------------------------------------------------------------
+   From DeskLib:Error.h
+--------------------------------------------------------------------------------
+*/
+extern void Error_Report(int errornum, const char *report, ...);
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: desklib.h,v $
+   Revision 1.1  2003/09/28 15:15:42  jtemple
+   Replaces shared/messages.h etc.
+
+
+--------------------------------------------------------------------------------
+*/

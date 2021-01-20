@@ -1,0 +1,39 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : mdsetup/trashcan.h                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CFG_TRASHCAN
+#define MDH_CFG_TRASHCAN
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : OW_trs_xxxx                                                     *
+ * Purpose   : TrashCan options pane icon numbers.                             *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/04/2002 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_trs_NOICONS  2
+#define OW_trs_GREYOUT  3
+#define OW_trs_HIDEIDE  6
+#define OW_trs_INMENU   8
+#define OW_trs_INTBAR   9
+#define OW_trs_NOPUB   10
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  OWFill_TrashCan  (void);
+void  OWClose_TrashCan (void);
+
+
+#endif

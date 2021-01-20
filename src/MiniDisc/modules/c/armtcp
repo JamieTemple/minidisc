@@ -1,0 +1,284 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : armtcp.c                                                        *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/armtcp.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "MiniDisc/core/menu.h"
+#include "MiniDisc/core/ibmenu.h"
+#include "MiniDisc/core/toolbar.h"
+#include "MiniDisc/core/information.h"
+
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:SWI.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Printer_Actions                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void ArmTCP_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  _kernel_swi_regs  regs;
+  message_block     message;
+  event_pollblock   pBlock;
+  event_pollmask    mask;
+  mouse_block       ptr;
+  int               iconNumber,
+                    atcp_handle;
+  icon_block        iBlock;
+  mouse_block       mBlock;
+  event_data        eBlock;
+  char              aNewMenu[260];
+  int               subMenuLevel = MenuGet_SubMenuLevel(event);
+
+
+  switch(mevent)
+  {
+    case click:
+      atcp_handle = XUtil_TaskGetHandle("ArmTCP");
+
+      Wimp_GetPointerInfo(&ptr);
+
+      for(iconNumber = 0;; iconNumber++)
+      {
+        message.header.size    = 20;                            /* Create a message block to read */
+        message.header.sender  = d->task;                       /*  the task handle of the window */
+        message.header.myref   = 0;                             /*  on which we've just got a     */
+        message.header.yourref = 0;                             /*  click event.                  */
+        message.header.action  = (message_action)0;             /* (make the message a non-event) */
+        regs.r[0]              = event_ACK;                     /*  We have to do things this way */
+        regs.r[1]              = (int) &message;                /*  because DeskLib's message     */
+        regs.r[2]              = -2;
+        regs.r[3]              = iconNumber;
+
+        (void) _kernel_swi(0x0400e7 | SWI_XOS_Bit, &regs, &regs);
+
+        MDTrace(1, "ArmTCP : %d  -  Icon : %d", atcp_handle, regs.r[2]);
+
+        if (regs.r[2] == atcp_handle || regs.r[2] == 0)
+          break;
+      }
+
+      Wimp_GetIconState(-2, iconNumber, &iBlock);
+
+      mBlock.pos.x              = (iBlock.workarearect.min.x + iBlock.workarearect.max.x) >> 1;
+      mBlock.pos.y              = (iBlock.workarearect.min.y + iBlock.workarearect.max.y) >> 1;
+      mBlock.window             = -2;
+      mBlock.icon               = iconNumber;
+
+      if (subMenuLevel == 0)
+      {
+        mBlock.button.value     = 1;
+        Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+        if (ptr.button.data.adjust) Wimp_CreateMenu(mainmenu, ptr.pos.x, ptr.pos.y);
+      }
+      else
+      {
+        switch(MenuGet_SubMenuValue(event, 1))
+        {
+          case 0:  /* Open Internet Apps window */
+            MDTrace(1, "Open inet apps (%d)", mBlock.icon);
+            mBlock.button.value = 4;
+            Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+            if (ptr.button.data.adjust) Wimp_CreateMenu(mainmenu, ptr.pos.x, ptr.pos.y);
+            break;
+
+          case 1:  /* Open ArmTCP Status window */
+            mBlock.button.value = 1;
+            Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+            if (ptr.button.data.adjust) Wimp_CreateMenu(mainmenu, ptr.pos.x, ptr.pos.y);
+            break;
+
+          case 2:  /* Connect */
+            Info_Show(armtcp); /* Display a 'Connecting' dialog. */
+            mBlock.button.value = 2;
+            Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+            eBlock.selection[0] = 3;
+            eBlock.selection[1] = -1;
+            Wimp_SendMessage(event_MENU,  (message_block *)&eBlock, -2, iconNumber);
+            mask.value = 0;
+            Wimp_Poll(mask, &pBlock);
+            Wimp_CreateMenu((menu_ptr)-1,0,0);
+            break;
+
+          case 3:  /* Disconnect */
+            mBlock.button.value = 2;
+            Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+            eBlock.selection[0] = 4;
+            Wimp_SendMessage(event_MENU,  (message_block *)&eBlock, -2, iconNumber);
+            mask.value = 0;
+            Wimp_Poll(mask, &pBlock);
+            Wimp_CreateMenu((menu_ptr)-1,0,0);
+/*            mBlock.icon = 1;
+
+            WE MUST CLOSE THE WARNING MESSAGE DIALOG FIRST!
+
+            Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber); */
+            Info_Close();
+            break;
+
+          case 4:  /* Choices... */
+            mBlock.button.value = 2;
+            Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+            eBlock.selection[0] = 5;
+            Wimp_SendMessage(event_MENU,  (message_block *)&eBlock, -2, iconNumber);
+            mask.value = 0;
+            Wimp_Poll(mask, &pBlock);
+            Wimp_CreateMenu((menu_ptr)-1,0,0);
+            break;
+        }
+      }
+      break;
+
+    case follow:
+      Msgs_Lookup ("menu.armtcp", aNewMenu, 260);
+      MenuAttach_Sub("AtmTCP", aNewMenu, event);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : Printer_ListDrivers                                             *
+ * Purpose   : Add available printer drivers to the main MiniDisc menu.        *
+ * Status    : Development.                                                    *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *ArmTCP_BuildMainMenu (void *mainmenu)
+{
+  MDTrace(100, "Displaying ArmTCP in main MD menu");
+
+  DriveMenuSize++;
+  mainmenu = ibMenu_Add (mainmenu, "ArmTCP", "smd_tcpon", 1, 0);
+  proceduresInfo[DriveMenuSize].proc_ptr = ArmTCP_Actions;
+  proceduresInfo[DriveMenuSize].drivenum = 0;
+
+  if (DriveMenuSize != -1) MenuRuleOff(mainmenu, DriveMenuSize);
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ArmTCP_TBhandler                                                *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+BOOL ArmTCP_TBHandler (event_pollblock *event, void *reference)
+{
+  _kernel_swi_regs  regs;
+  message_block     message;
+  event_pollblock   pBlock;
+  event_pollmask    mask;
+  mouse_block       ptr;
+  int               iconNumber,
+                    atcp_handle;
+  icon_block        iBlock;
+  mouse_block       mBlock;
+  event_data        eBlock;
+  char              abuffer[4] = {"   "};
+
+
+  if ((int)reference != 2)  return TRUE;
+
+  atcp_handle = XUtil_TaskGetHandle("ArmTCP");
+
+  Wimp_GetPointerInfo(&ptr);
+
+  for(iconNumber = 0;; iconNumber++)
+  {
+    message.header.size    = 20;                            // Create a message block to read
+    message.header.sender  = d->task;                       //  the task handle of the window
+    message.header.myref   = 0;                             //  on which we've just got a
+    message.header.yourref = 0;                             //  click event.
+    message.header.action  = (message_action)0;             // (make the message a non-event)
+    regs.r[0]              = event_ACK;                     //  We have to do things this way
+    regs.r[1]              = (int) &message;                //  because DeskLib's message
+    regs.r[2]              = -2;
+    regs.r[3]              = iconNumber;
+
+    (void) _kernel_swi(0x0400e7 | SWI_XOS_Bit, &regs, &regs);
+
+    if (regs.r[2] == atcp_handle || regs.r[2] == 0)  break;
+  }
+
+  Wimp_GetIconState(-2, iconNumber, &iBlock);
+
+  mBlock.pos.x  = (iBlock.workarearect.min.x + iBlock.workarearect.max.x) >> 1;
+  mBlock.pos.y  = (iBlock.workarearect.min.y + iBlock.workarearect.max.y) >> 1;
+  mBlock.window = -2;
+  mBlock.icon   = iconNumber;
+
+  if (event->data.mouse.button.value == 1)  // adjust
+  {
+    OS_ReadVarVal("InterNet$Connection", abuffer, 4);
+
+    if (abuffer[0] == '1')  // Internet connection ACTIVE, so disconnect
+    {
+      mBlock.button.value = 2;
+      mBlock.window       = -2;
+      Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+      eBlock.selection[0] = 4;
+      Wimp_SendMessage(event_MENU,  (message_block *)&eBlock, -2, iconNumber);
+      mask.value = 0;
+      Wimp_Poll(mask, &pBlock);
+      Wimp_CreateMenu((menu_ptr)-1,0,0);
+      Info_Close();
+    }
+    else  // CONNECT
+    {
+      Info_Show(armtcp);  /* Display a 'Connecting' dialog. */
+      mBlock.button.value = 2;
+      mBlock.window       = -2;
+      Wimp_SendMessage (event_CLICK, (message_block *)&mBlock, atcp_handle, NULL);
+      eBlock.selection[0] = 3;
+      eBlock.selection[1] = 0;
+      eBlock.selection[2] = -1;
+      Wimp_SendMessage (event_MENU,  (message_block *)&eBlock, atcp_handle, NULL);
+      mask.value = 0;
+      Wimp_Poll(mask, &pBlock);
+      Wimp_CreateMenu((menu_ptr)-1,-1,-1);
+    }
+  }
+  else if (event->data.mouse.button.value == 4)  // select
+  {
+    mBlock.button.value = 1;
+    Wimp_SendMessage(event_CLICK, (message_block *)&mBlock, -2, iconNumber);
+    if (ptr.button.data.adjust) Wimp_CreateMenu(mainmenu, ptr.pos.x, ptr.pos.y);
+  }
+
+
+  return FALSE;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : ArmTCP_AddTBIcons                                               *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void ArmTCP_AddTBIcons (void)
+{
+  if (MDCfg->network.armTCPInTbar != 0)  return;
+
+  ToolBar_AddIcon("md_tcpon", 0, "ArmTCP", "md_tcpon", (tb_proc) ArmTCP_TBHandler);
+}

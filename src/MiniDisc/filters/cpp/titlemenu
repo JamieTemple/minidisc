@@ -1,0 +1,301 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/filters/titlemenu.cpp,v $
+
+   $Revision: 1.4 $
+   $Date: 2004/04/14 14:44:16 $
+
+   Manage interception of MENU clicks on window titles.
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "shared/global.h"
+
+#ifdef __cplusplus
+   extern "C" {
+#endif
+
+#include "shared/utilities.h"
+
+#include "minidisc/core/ModHdr.h"
+#include "minidisc/core/dirmenu.h"
+#include "minidisc/core/Menu.h"
+
+#include "DeskLib:SWI.h"
+#include "DeskLib:Menu.h"
+#include "DeskLib:Wimp.h"
+#include "DeskLib:Window.h"
+#include "DeskLib:WimpMsg.h"
+#include "DeskLib:WimpSWIs.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   (Local) Global Variables
+--------------------------------------------------------------------------------
+*/
+static int   callback_queue = 0;
+static int   menu_pressed   = 0;
+static char  MDEvents_fsnBuffer[1024];  // Must be global to stay valid between vector call and
+                                        // it being used by the WIMP app message handling code.
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Filters_GetPath
+   Purpose   : Takes a window title string, and trys to create a path from it.
+   Status    : Implementation (V1.1.2)
+   V1.1.2    : 01/01/2003 - Bugfix - Now copes with Alt-Space characters in
+                                     pathnames correctly.
+   V1.1.1    : 20/01/2002 - Bugfix - Fixed filename checking.
+   V1.1.0    : 16/12/2001 - Update - Now uses canonicalised paths to avoid
+                            problems with path variables with multiple paths.
+   V1.0.0    : 12/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+static BOOL Filters_GetPath(char *aString)
+{
+  _kernel_swi_regs  regs;
+  char             *tmpBuffer;
+  int               i;
+  bool              pathIsValid;
+
+
+  db->fn_begin();
+
+  // Read string from left, until control char encountered
+  for (i = 0; (aString[i] > ' ') || (aString[i] == -96); i++);
+
+  aString[i] = 0;                               // Terminate things before it all gets rather messy!
+
+  if (!XUtil_FileExists(aString) && !XUtil_FileIsDirectory(aString))  return FALSE;
+
+  regs.r[0] = 37;                               // OS_FSControl - 37 = Canonicalise path
+  regs.r[1] = (int)aString;                     // The remaining title-bar text (we think may be a file)
+  regs.r[2] = 0;                                // 0 to read size
+  regs.r[3] = 0;                                // (no path variables used)
+  regs.r[4] = 0;                                // (no path strings used)
+  regs.r[5] = 0;                                // 0 to read buffer size.
+
+  _kernel_swi(0x029, &regs, &regs);             // Call swi, get the buffer requirements.
+
+  tmpBuffer = malloc(1 - regs.r[5] + 1);        // Allocate enough memory.
+
+  regs.r[2] = (int)tmpBuffer;                   // Point to our newly allocated memory buffer.
+  regs.r[5] = 1 - regs.r[5];                    // The size of the buffer.
+
+  _kernel_swi(0x029, &regs, &regs);             // Call to calculate filename.
+
+  if (!XUtil_FileIsDirectory(tmpBuffer))        // Dump the filename (we're looking for a directory path)
+  {
+    for (i = strlen(tmpBuffer); tmpBuffer[i] != '.'; i--);
+    tmpBuffer[i] = 0;
+  }
+
+  pathIsValid = XUtil_FileIsDirectory(tmpBuffer);
+
+  if (pathIsValid)  strcpy (MDEvents_fsnBuffer, tmpBuffer);  // Stick the results in our output buffer
+
+  free(tmpBuffer);
+
+  db->fn_end();
+
+
+  return pathIsValid;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MDFilters_TitleMenu
+   Purpose   : Respond to a WIMP message to display a directory path menu.
+   Status    : Implementation (V1.0.2)
+   V1.0.2    : 01/01/2003 - Bugfix - Now clears the callback flag if we have
+                                     to bail as a result of not finding a
+                                     valid filename.
+   V1.0.1    : 31/03/2002 - Update - Now shows the full path name in the menu
+                                     title if we're creating a directory menu
+                                     of a root ('$') directory.
+   V1.0.0    : 12/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MD_TitleMenu_Message (event_pollblock *event, void *reference)
+{
+  mouse_block    ptr;
+  window_info    aWindow;
+  char           results[1024];
+  int            i;
+  task_handle    task;
+
+
+  db->fn_begin();
+
+  Wimp_GetPointerInfo (&ptr);
+  Window_GetInfo3     (ptr.window, &aWindow);                   // Read details of window
+
+  task = WimpMsg_GetTaskHandle(ptr.window, ptr.icon);           // Read the task handle of that window.
+
+  if (aWindow.block.titleflags.data.indirected)
+    XUtil_ReadAppMemory(task, aWindow.block.title.indirecttext.buffer, results, 1024);
+  else
+    strcpy(results, aWindow.block.title.text);
+
+  db->tracef(10, "Trying to make sense of window title: %s", results);
+
+  if (Filters_GetPath (results))
+  {
+    for (i = strlen(MDEvents_fsnBuffer); MDEvents_fsnBuffer[i] != '.'; i--);  /* build a menu title */
+
+    dirMenu_SetFlags();
+
+    strcpy(results, MDEvents_fsnBuffer);  /* Ensure the menu code does not overwrite our context */
+
+    if (*(results+i+1) == '$')  i = -1;   /* Show full title when root ($) directory */
+
+    mainmenu                       = (menu_ptr)dirMenu_FromDir (results, results + i + 1, TRUE);
+    d->currentMenu.menuptr         = (int)mainmenu;
+    d->currentMenu.type            = MD_menu_directory;
+    d->currentMenu.context.dirPath = MDEvents_fsnBuffer;
+
+    dirMenu_AddHandlers ((void *)mainmenu);
+
+    Menu_Show (mainmenu, ptr.pos.x, ptr.pos.y);
+  }
+
+  callback_queue = 0;
+
+  db->fn_end();
+
+  UNUSED(event);
+  UNUSED(reference);
+
+
+  return TRUE;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : Filters__TitleMenu
+   Purpose   :
+   Status    : Implementation (V1.0.0)
+   V1.0.0    : 06/05/2001 - Preliminary implementation.
+   Notes     : As specified in ModHdr.cmhg
+               At the moment, this simply sends an UNOFFICIAL message to the
+               MiniDisc WIMP app.
+--------------------------------------------------------------------------------
+*/
+_kernel_oserror *Filters__TitleMenu(_kernel_swi_regs *r, void *pw)
+{
+  db->fn_begin();
+
+  WimpMsg_SendTask(event_SEND, (message_action)MDMsg_TitleMenu, NULL, 0, d->task);
+
+  db->fn_end();
+
+  UNUSED(r);
+  UNUSED(pw);
+
+
+  return NULL;
+}
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Procedure : MD_TitleMenu_Event
+   Purpose   :
+   Status    : Implementation (V1.1.0)
+   V1.1.0    : 01/01/2003 - Update - Now checks for mouse-up, and acts on that
+                                     to stop the extra click bug.
+   V1.0.0    : 06/05/2001 - Preliminary implementation.
+   Notes     :
+--------------------------------------------------------------------------------
+*/
+BOOL MD_TitleMenu_Event(_kernel_swi_regs *r, void *pw)
+{
+  int          irqs;
+  mouse_block  ptr;
+
+
+  if (callback_queue == 1)        return FALSE;                   // Only process 1 event at a time
+
+  if (MDCfg->filters.winTitle)    return FALSE;                   // Quit if configured OFF
+
+  if (menu_pressed == 0)
+  {
+    if (r->r[3] != 2)             return FALSE;                   // Not a menu click.
+
+    Wimp_GetPointerInfo (&ptr);
+    if (ptr.icon != -4)           return FALSE;                   // Only process title bar clicks
+
+    menu_pressed = 1;
+
+    return TRUE;
+  }
+
+  else                                                            // menu_pressed == 1
+  {
+    if (r->r[3] != 0)             return FALSE;                   // Not a menu released click
+
+    Wimp_GetPointerInfo (&ptr);
+    if (ptr.icon != -4)           return FALSE;                   // Only process title bar clicks
+  }
+
+  irqs = _kernel_irqs_disabled();                                 // Read IRQ status
+  if (irqs == 0) _kernel_irqs_off();                              // Disable if necessary...
+
+  menu_pressed   = 0;
+  callback_queue = 1;                                             // Flag that we're busy
+
+  XUtil_AddCallBack(Filters__TitleMenu_callback, pw);             // Add a callback handler
+
+  if (irqs == 0) _kernel_irqs_on();                               // Re-enable interrupts if req'd.
+
+
+  return TRUE;
+}
+
+
+
+#ifdef __cplusplus
+   }
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: titlemenu.cpp,v $
+   Revision 1.4  2004/04/14 14:44:16  jtemple
+   General check-in of additions / changes prior to an initial beta
+   release of MiniDisc version 0.61.
+
+   Revision 1.3  2003/10/05 16:00:20  jtemple
+   General check-in for release testing.
+
+   Revision 1.2  2003/09/13 23:36:30  jtemple
+   Replaced Mem_ functions with malloc/free.
+
+
+--------------------------------------------------------------------------------
+*/
+
+
+

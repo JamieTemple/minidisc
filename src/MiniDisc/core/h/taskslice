@@ -1,0 +1,78 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/taskslice.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:15 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef MDH_TASKSLICE
+#define MDH_TASKSLICE
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "DeskLib:Wimp.h"
+
+
+/*
+--------------------------------------------------------------------------------
+   Shared types
+--------------------------------------------------------------------------------
+*/
+typedef enum
+{
+  notStarted = 0,
+  started,
+  complete
+} sliceproc_state;
+
+
+typedef struct
+{
+  void             (*proc_ptr)(void);
+  _kernel_swi_regs   params;
+  sliceproc_state    state;
+} sliceproc;
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern BOOL  TaskSlice_CloseSplash  (event_pollblock *event, void *reference);
+extern void  TaskSlice_Process      (void);
+extern BOOL  TaskSlice_CreateSplash (void);
+extern BOOL  TaskSlice_Initialise   (void);
+extern void  TaskSlice_SplashWrite  (char *messageText, ...);
+extern void  TaskSlice_Copywright   (void);
+
+
+#endif
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: taskslice.h,v $
+   Revision 1.2  2003/10/05 16:00:15  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

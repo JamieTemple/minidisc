@@ -1,0 +1,132 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : resfs.c                                                         *
+ * Purpose   : ResourceFS specific code.                                       *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/resfs.h"
+
+#include "MiniDisc/modules/filecore.h"
+
+#include "shared/global.h"
+
+#include "MiniDisc/core/toolbar.h"
+#include "MiniDisc/core/oslib-menu.h"
+#include "minidisc/core/dirmenu.h"
+#include "MiniDisc/core/ibmenu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "oslib/osfscontrol.h"
+
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RESFS_Actions                                                   *
+ * Purpose   : ResourceFS specific handlers for main menu clicks/warnings.     *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RESFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case click:
+      if(MenuGet_SubMenuLevel(event) == 0)
+      {
+        if (MDCfg->image.resFSopenApps == 0)  xos_cli("Filer_OpenDir Resources:$.Apps");
+        else                                  xos_cli("Filer_OpenDir Resources:$");
+      }
+      else  dirMenu_Click (event);
+      break;
+
+    case follow:
+      dirMenu_FromDrive (event, FALSE);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RESFS_ListDrives                                                *
+ * Purpose   : Add a menu entry in the main MiniDisc menu for ResourceFS       *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 26/11/1999 - Update - Now uses 'md!res' sprite.                 *
+ * V1.0.0    : 02/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *RESFS_ListDrives (void *mainmenu)
+{
+  db_fn_begin();
+
+  db_trace(100, "Displaying Resources in main MD menu");
+
+  DriveMenuSize++;
+  mainmenu = ibMenu_Add (mainmenu, "Resources", "smd_res", 1, 0);
+  proceduresInfo[DriveMenuSize].proc_ptr = RESFS_Actions;
+  proceduresInfo[DriveMenuSize].drivenum = 0;
+  strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "Resources:$");
+
+  db_fn_end();
+
+
+  return mainmenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RESFS_TBHandler                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RESFS_TBHandler (void *event, void *reference)
+{
+  _kernel_swi_regs  r;
+  int               mBlock[5];
+
+
+  if ((int)reference == 2)
+  {
+    MDTrace (1, "MouseClick");
+
+    r.r[1] = (int) mBlock;
+    _kernel_swi(0x400cf, &r, &r);  // Wimp_GetPointerInfo
+
+    switch(mBlock[2])
+    {
+      case 1:  // Adjust - Display a directory menu
+        strcpy(TB__DiscName, "Resources:$");
+        dirMenu_SetFlags ();
+        dirMenu_FromPath (TB__DiscName, event);
+        break;
+
+      case 4:  // Select - Open the root directory of the drive
+        if (MDCfg->image.resFSopenApps == 0)  xos_cli("Filer_OpenDir Resources:$.Apps");
+        else                                  xos_cli("Filer_OpenDir Resources:$");
+        break;
+    }
+  }
+
+
+  return;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : RESFS_AddTBIcons                                                *
+ * Purpose   :                                                                 *
+ * Status    : Development                                                     *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void RESFS_AddTBIcons (void)
+{
+  if (MDCfg->image.resFSinTbar != 0)  return;
+
+  ToolBar_AddIcon("md_res", 0, "romapps", "Resources", (tb_proc) RESFS_TBHandler);
+}
+

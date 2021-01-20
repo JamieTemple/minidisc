@@ -1,0 +1,54 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/sb-url.h                                              *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_URL
+#define MDH_SB_URL
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Event.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : SD_url_<xxx>                                                    *
+ * Purpose   : Create / update 'url' dialog icon numbers.                      *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 13/02/2000 - Update - Added 'event' buttons.                    *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define SD_url_label      2
+#define SD_url_address    4
+#define SD_url_Cancel     7
+#define SD_url_OK         6
+#define SD_url_ruleoff    9
+#define SD_url_Attach    10
+#define SD_url_Edit      11
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  SCEdit_OP2_CalcAcornURL  (char *filename, char *address, char *label);
+void  SCEdit_OP2_SetAcornIcons (window_handle window, char *filename);
+void  SCEdit_OP2_CalcANTURI    (char *filename, char *address, char *label);
+void  SCEdit_OP2_SetANTIcons   (window_handle window, char *filename);
+BOOL  SCOP2_DataLoad           (event_pollblock *event, void *reference);
+void  SCEdit_AddURL            (int x, int yPos, shortcuts_menu *item);
+void  SCOK2                    (dialog2_block *aDialog);
+void  SCOP2                    (dialog2_block *aDialog);
+void  SB_URL_MainWinDrag       (int fileType, BOOL showDialog, event_pollblock *event);
+
+
+#endif
+

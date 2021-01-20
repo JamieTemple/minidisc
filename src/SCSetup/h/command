@@ -1,0 +1,46 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/sb-cmnd.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_CMND
+#define MDH_SB_CMND
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : SD_cmnd_<xxx>                                                   *
+ * Purpose   : Create / update 'command' dialog icon numbers.                  *
+ * Status    : Implementation (V1.0.1)                                         *
+ * V1.0.1    : 13/02/2000 - Update - Added 'event' buttons.                    *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define SD_cmnd_label    2
+#define SD_cmnd_command  4
+#define SD_cmnd_OK       6
+#define SD_cmnd_Cancel   7
+#define SD_cmnd_ruleoff  9
+#define SD_cmnd_Attach  10
+#define SD_cmnd_Edit    11
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+void  SCEdit_AddCmnd (int x, int yPos, shortcuts_menu *item);
+void  SCOK0          (dialog2_block *aDialog);
+void  SCOP0          (dialog2_block *aDialog);
+
+
+#endif
+

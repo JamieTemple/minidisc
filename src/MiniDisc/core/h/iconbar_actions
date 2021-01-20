@@ -1,0 +1,56 @@
+/*
+--------------------------------------------------------------------------------
+
+   $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/iconbar_actions.h,v $
+
+   $Revision: 1.2 $
+   $Date: 2003/10/05 16:00:07 $
+
+   .
+
+--------------------------------------------------------------------------------
+*/
+
+
+
+#ifndef __MINIDISC_CORE_ICONBAR_ACTIONS_H
+#define __MINIDISC_CORE_ICONBAR_ACTIONS_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Includes
+--------------------------------------------------------------------------------
+*/
+#include "DeskLib:Event.h"
+
+
+
+/*
+--------------------------------------------------------------------------------
+   Internal procedures
+--------------------------------------------------------------------------------
+*/
+extern BOOL IconBar_Click    (event_pollblock *event, void *reference);
+extern BOOL IconBar_DataLoad (event_pollblock *event, void *reference);
+extern BOOL IconBar_DataSave (event_pollblock *event, void *reference);
+
+
+
+#endif  // #define __MINIDISC_CORE_ICONBAR_ACTIONS_H
+
+
+
+/*
+--------------------------------------------------------------------------------
+
+   $Log: iconbar_actions.h,v $
+   Revision 1.2  2003/10/05 16:00:07  jtemple
+   General check-in for release testing.
+
+
+--------------------------------------------------------------------------------
+*/
+
+

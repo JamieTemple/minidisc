@@ -1,0 +1,74 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : cdfs2.h                                                         *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_CDFS2
+#define MDH_CDFS2
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "DeskLib:Dialog2.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * --------------------------------------------------------------------------- */
+extern dialog2_block *mddlg_cdfs_cfg,
+                     *mddlg_cdfs_vol;
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     :                                                                 *
+ * Purpose   :                                                                 *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 19/02/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define CDFSVDialog_Cancel  0
+#define CDFSVDialog_OK      1
+#define CDFSVDialog_Well    2
+#define CDFSVDialog_Drive   3
+#define CDFSVDialog_Bar     5
+
+#define CDFSCDialog_Cancel  0
+#define CDFSCDialog_OK      1
+#define CDFSCDialog_Buffers 2
+#define CDFSCDialog_BDown   3
+#define CDFSCDialog_BUp     4
+#define CDFSCDialog_Drives  5
+#define CDFSCDialog_DDown   6
+#define CDFSCDialog_DUp     7
+
+
+
+/* --------------------------------------------------------------------------- *
+ * External procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern int   cdfs_get_number_of_drives (void);
+extern void  cdfs_set_number_of_drives (int drive_count);
+extern int   cdfs_get_buffer_size      (void);
+extern void  cdfs_set_buffer_size      (int buffer_size_exp);
+
+extern void *xwimp_resize_icon         (int w, int i, int x0, int y0, int x1, int y1);
+
+extern int   CDFS_GetVolAsPercent      (int driveNum);
+extern void  CDFS_SetVol               (int driveNum, int volume);
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void CDFS_FollowControlMenu     (event_pollblock *event, char *fsn_desc, int drivenum);
+extern void CDFS2_OpenDialogs          (event_pollblock *event, int value);
+extern void CDFS2_OpenCfg              (dialog2_blockptr aDialog);
+extern void CDFS2_OpenVol              (dialog2_blockptr aDialog);
+extern void CDFS2_OKCfg                (dialog2_blockptr aDialog);
+extern void CDFS2_OKVol                (dialog2_blockptr aDialog);
+
+
+#endif

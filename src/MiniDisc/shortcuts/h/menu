@@ -1,0 +1,37 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : modules/scut-menu.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SCUT_MENU
+#define MDH_SCUT_MENU
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "DeskLib:Menu.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void  Shortcuts_AddMenu      (menu_ptr aMenu, int entryNumber, shortcuts_menu *menuEntry);
+extern void  Shortcuts_LoadScMenu   (char *stringStart, shortcuts_menu *next);
+extern void  Shortcuts_MenuAction   (shortcuts_menu *current, event_pollblock *event, int callType);
+extern void  Shortcut_MenuDispose   (shortcuts_menu **item);
+extern void  Shortcut_MenuAddTBIcon (menu_info *scut, int index, char *menuName);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

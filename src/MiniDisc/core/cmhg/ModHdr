@@ -1,0 +1,123 @@
+; ------------------------------------------------------------------------------
+;
+;  $Source: /ADFS::4/\044/Shared/unix/cvs/minidisc/Sourcecode/MiniDisc/core/ModHdr.cmhg,v $
+;
+;  $Revision: 1.7 $
+;  $Date: 2004/04/17 14:55:16 $
+;
+;  !MiniDisc module interface.
+;
+; ------------------------------------------------------------------------------
+
+
+; ------------------------------------------------------------------------------
+; Standard module initailisation stuff...
+; ------------------------------------------------------------------------------
+module-is-runnable:
+
+title-string:		MiniDisc
+
+help-string:		MiniDisc 0.61 beta © Jamie Temple, 1998-2004
+
+date-string:		17 Apr 2004
+
+initialisation-code:	MiniDisc__Initialise
+
+finalisation-code:	MiniDisc__Finalise
+
+service-call-handler:	MiniDisc__Service 17 75
+
+
+
+; ------------------------------------------------------------------------------
+; Cunning OS hooks...
+; ------------------------------------------------------------------------------
+event-handler:		Filters__Event_handler/Filters__Event 10 11
+
+vector-handlers:	Filters__Filter_handler/Filters__Process,
+			Filters__Filter_PreHandler/Filters__PreProcess,
+			ToolBar__TrackMouse_handler/ToolBar__TrackMouse
+
+
+
+; ------------------------------------------------------------------------------
+; Callbacks...
+; ------------------------------------------------------------------------------
+generic-veneers:	Filters__TitleMenu_callback/Filters__TitleMenu,
+			Filters__CtrlOpen_callback/Filters__CtrlOpen,
+			Filters__OpenDir_callback/Filters__OpenDir,
+			Filters__PreSWI_handler/Filters__PreSWI,
+			Filters__FilerPlot_handler/Filters__FilerPlot,
+			CB__ToolBar_Hide/ToolBar__Hide,
+			CB__ToolBar_AutoHelp/ToolBar_AutoHelp,
+			CB__ToolBar_HotSpotEntered/ToolBar_HotSpotEntered,
+			CB__ToolBar_HotSpotLeaft/ToolBar_HotSpotLeaft
+
+
+; ------------------------------------------------------------------------------
+; Module command table
+; ------------------------------------------------------------------------------
+command-keyword-table: MiniDisc__CmdHandler
+  Desktop_MiniDisc(min-args:0, max-args:0,
+	help-text: "Use *Desktop to start MiniDisc\n"),
+
+  MD_FilerQuit(min-args:1, max-args:1, add-syntax:,
+	help-text:      "Send a fake 'Filer is about to quit' message to a particular module\n"
+	invalid-syntax: "Syntax : MD_FilerQuit <xxxFiler module name>\n"),
+
+  MD_FilerStart(min-args:1, max-args:1, add-syntax:,
+	help-text:      "Send a fake 'Filer is about to start' message to a particular module\n"
+	invalid-syntax: "Syntax : MD_FilerStart <xxxFiler module name>\n"),
+
+  MD_TaskQuit(min-args:1, max-args:10, add-syntax:,
+	help-text:      "Send a 'Wimp Closedown' message to a particular task\n"
+	invalid-syntax: "Syntax : MD_TaskQuit <Task Description>\n"),
+
+  MD_ShowMenu(min-args:1, max-args:1, add-syntax:,
+	help-text:      "Display a MiniDisc shortcuts menu\n"
+	invalid-syntax: "Syntax: MD_ShowMenu <Shortcuts menu>\n"),
+
+  MD_ShowPathMenu(min-args:1, max-args:1, add-syntax:,
+	help-text:	"Display a MiniDisc directory menu\n"
+	invalid-syntax: "Syntax: MD_ShowPathMenu <Directory>\n"),
+
+  PinBack(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Moves the Pinboard behind all other windows\n"
+	invalid-syntax:	"Syntax: PinBack\n"),
+
+  PinFront(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Moves the Pinboard in front of other windows\n"
+	invalid-syntax:	"Syntax: PinFront\n"),
+
+  PinToggle(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Toggles the Pinboard position between the front or back of the windows stack\n"
+	invalid-syntax:	"Syntax: PinToggle\n"),
+
+  MMenu(min-args:1, max-args:1, add-syntax:,
+	help-text:	"Create a Shortcuts menu\n"
+	invalid-syntax:	"Syntax: Mmenu <menu name>\n"),
+
+  MEnd(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Finish current Shortcuts menu\n"
+	invalid-syntax:	"Syntax: MEnd\n"),
+
+  MPOff(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Disable MiniDisc menu processing\n"
+	invalid-syntax:	"Syntax: MPOff\n"),
+
+  MPOn(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Enable MiniDisc menu processing\n"
+	invalid-syntax:	"Syntax: MPOn\n"),
+
+  MDash(min-args:0, max-args:0, add-syntax:,
+	help-text:	"Add a dash below the last Shortcuts menu item\n"
+	invalid-syntax:	"Syntax: MDash\n"),
+
+  MItem(min-args:3, max-args:7, add-syntax:,
+	help-text:	"Add an item into the Shortcuts menu\n"
+	invalid-syntax:	"Syntax: MItem <label> <command|file|path|menu|url> <descriptor> [-nosprite] [-sprite <name>] [-shaded] [-ticked]\n")
+
+
+; ------------------------------------------------------------------------------
+
+

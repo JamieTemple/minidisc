@@ -1,0 +1,110 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : scbuilder/sb-core.h                                             *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SB_CORE
+#define MDH_SB_CORE
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "shared/global.h"
+
+#include "DeskLib:Dialog2.h"
+#include "DeskLib:Wimp.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Macro     : <OW Various>                                                    *
+ * Purpose   : Options windows/panes icon numbers                              *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 22/01/2000 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+#define OW_sc3_SCBMVDN    2
+#define OW_sc3_SCMDELE    3
+#define OW_sc3_SCMSELE    4
+#define OW_sc3_SCMCREA    5
+#define OW_sc3_SCMEDIT    6
+#define OW_sc3_SCBMVUP    7
+#define OW_sc3_SCBCREA    8
+#define OW_sc3_SCBEDIT    9
+#define OW_sc3_SCBDELE   10
+#define OW_sc3_CANCEL    12
+#define OW_sc3_SAVE      13
+#define OW_sc3_TEST      14
+#define OW_sc3_OK        15
+#define OW_sc3_FILESLC   20
+#define OW_sc3_FILEEDT   21
+#define OW_sc3_SCCPMV    22
+
+#define SD_newm_OK        1
+#define SD_newm_menuName  2
+#define SD_newm_Cancel    4
+#define SD_newm_Attach    5
+#define SD_newm_Edit      6
+
+#define SD_evnt_Keyboard  2
+#define SD_evnt_WIMP      3
+#define SD_evnt_Cancel    4
+#define SD_evnt_OK        5
+#define SD_evnt_KeyVal    6
+#define SD_evnt_WIMPMsg   8
+
+/* --------------------------------------------------------------------------- *
+ * External Variables                                                          *
+ * --------------------------------------------------------------------------- */
+extern shortcuts_menu_head  scArrayCopy[maximumNumberOfShortcuts];
+extern shortcuts_menu_head  shortcutsArray[maximumNumberOfShortcuts];
+extern shortcuts_menu_head *currentShortcutsMenu;
+extern window_handle        scwin_main,
+                            scwin_pane;
+extern dialog2_block       *shortcutDialog;
+
+
+/* --------------------------------------------------------------------------- *
+ * Internal procedures                                                         *
+ * --------------------------------------------------------------------------- */
+extern void            SCEdit_CalcIconPos      (int minx, int maxy, icon_block *data);
+extern int             SCEdit_FillWindow       (shortcuts_menu *next);
+extern void            SCEdit_CopyShortcuts    (shortcuts_menu_head *from,
+                                                shortcuts_menu_head *to);
+extern void            recdump                 (shortcuts_menu *item);
+extern BOOL            noMoreMenus             (event_pollblock *event, void *reference);
+extern void            SCEdit_DumpShortcuts    (shortcuts_menu_head *head);
+extern void            SCEdit_RefreshWindow    (void);
+extern shortcuts_menu *SCEdit_FindNewShortcut  (shortcuts_menu_head *top, int menuPos);
+extern BOOL            SCEdit_MainDL           (event_pollblock *event, void *reference);
+extern void            SCEdit_OpenWindow       (void);
+extern BOOL            SCEdit_BMenuSelect      (event_pollblock *event, void *reference);
+extern void            SCEdit_BMenuOK          (dialog2_blockptr aDialog);
+extern BOOL            SCEdit_BMenuCreate      (event_pollblock *event, void *reference);
+extern void            SCEdit_RMenuOK          (dialog2_blockptr aDialog);
+extern BOOL            SCEdit_BMenuRename      (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BMenuDelete      (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BScutCreate      (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BScutUpdate      (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BScutDelete      (event_pollblock *event, void *reference);
+extern void            SCEdit_BScutMatrix      (shortcuts_menu *i1, shortcuts_menu *i2,
+                                                shortcuts_menu *i3, shortcuts_menu *i4,
+                                                shortcuts_menu *current);
+extern BOOL            SCEdit_BScutMoveUp      (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BScutMoveDown    (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BTest            (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BSave            (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_BCancel          (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_ClickToolBox     (event_pollblock *event, void *reference);
+extern BOOL            SCEdit_ShortcutCreate   (event_pollblock *event);
+extern BOOL            SCEdit_MenuSelect       (event_pollblock *event, menu_ptr menu,
+                                                int selection);
+extern char           *SCEdit_FindLeafName     (char *filename);
+extern void            shortcutDialog_Dispose  (void);
+extern BOOL            SCEdit_ShortcutCopyMove (event_pollblock *event,  menu_ptr menu,
+                                                int selection, BOOL reshow);
+
+
+#endif
+

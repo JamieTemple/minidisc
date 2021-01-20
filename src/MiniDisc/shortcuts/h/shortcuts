@@ -1,0 +1,37 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : modules/chortcuts/shortcuts.h                                   *
+ * Purpose   :                                                                 *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+#ifndef MDH_SCUT_MAIN
+#define MDH_SCUT_MAIN
+
+
+
+#include "shared/global.h"
+
+#include "DeskLib:Event.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+#ifndef __MINIDISC_SHORTCUTS_H
+extern shortcuts_menu_head shortcutsArray[maximumNumberOfShortcuts];
+#endif
+
+
+
+extern BOOL  Shortcuts_TBHandler  (event_pollblock *event, void *reference);
+extern void  Shortcuts_AddTBIcon  (char *smallSprite, int   shrinkSprite, char *bigSprite,
+                                   char *infoText,    char *menuName,     int   index);
+#ifdef __cplusplus
+}
+#endif
+
+
+
+#endif

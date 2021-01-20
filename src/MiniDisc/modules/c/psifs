@@ -1,0 +1,260 @@
+/* --------------------------------------------------------------------------- *
+ * Filename  : PsiFS.c                                                         *
+ * Purpose   : PsiFS specific code.                                            *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+
+
+/* --------------------------------------------------------------------------- *
+ * Includes                                                                    *
+ * --------------------------------------------------------------------------- */
+#include "MiniDisc/modules/PsiFS.h"
+
+#include "shared/global.h"
+#include "shared/utilities.h"
+
+#include "MiniDisc/core/menu.h"
+#include "MiniDisc/core/ibmenu.h"
+#include "minidisc/core/dirmenu.h"
+
+#include "DeskLib:KernelSWIs.h"
+#include "DeskLib:Msgs.h"
+#include "DeskLib:Window.h"
+
+
+/* --------------------------------------------------------------------------- *
+ * Global Variables                                                            *
+ * --------------------------------------------------------------------------- */
+static BOOL notConnected,
+            psionControlMenuOpen;
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : PsiFS_Click                                                     *
+ * Purpose   : PsiFS specific handler for menu clicks.                         *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 04/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void PsiFS_Click(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  char  aBuffer[260];
+  int   subMenuLevel = MenuGet_SubMenuLevel(event);
+
+
+  if (subMenuLevel == 0)
+  {
+    sprintf(aBuffer, "Filer_OpenDir %s::%c.$", fsn_desc, 'A' + drivenum);
+    OS_CLI(aBuffer);
+  }
+  else if (subMenuLevel == 1 && psionControlMenuOpen)
+  {
+    switch (MenuGet_SubMenuValue(event, 1))
+    {
+      case 0:  /* Open root */
+        sprintf(aBuffer, "Filer_OpenDir %s::%c.$", fsn_desc, 'A' + drivenum);
+        OS_CLI(aBuffer);
+        break;
+      case 1:  /* Disconnect */
+        _kernel_swi(PsiRiscFS_Disconnect, NULL, NULL);
+        break;
+      case 2:  /* Open       */
+      case 3:  /* Backup     */
+      case 4:  /* Share      */
+      case 5:  /* Prefs      */
+        break;
+      case 6:  /* Free       */
+        sprintf(aBuffer, "ShowFree -FS %s %c", fsn_desc, 'A' + drivenum);
+        OS_CLI(aBuffer);
+        break;
+      }
+  }
+  else  dirMenu_Click (event);
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : PsiFS_Follow                                                    *
+ * Purpose   : PsiFS specific handler for menu warnings.                       *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 04/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void PsiFS_Follow(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  char      discName[27],
+            aNewMenu[260],
+            bNewMenu[260];
+  int       subMenuLevel = MenuGet_SubMenuLevel(event);
+  BOOL      altPressed   = XUtil_KeyPressed(-3), /* Alt check */
+            controlMenu  = TRUE; /* Default: show control menu */
+
+
+  if (MDCfg->misc.hideControl == 0 && !altPressed)  controlMenu = FALSE;
+
+  if (subMenuLevel == 0 && controlMenu)
+  {
+    sprintf(discName, "%s::%c.$", fsn_desc, 'A' + drivenum);
+    Msgs_Lookup ("menu.psirisc", bNewMenu, 260);
+    sprintf(aNewMenu, ">%s|%s", discName, bNewMenu);
+    MenuAttach_Sub(discName, aNewMenu, event);
+    psionControlMenuOpen = TRUE;
+  }
+  else
+  {
+    dirMenu_FromDrive (event, FALSE);
+    psionControlMenuOpen = FALSE;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : PsiFS_Actions                                                   *
+ * Purpose   : PsiFS handler dispatcher for main menu clicks/warnings.         *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 04/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void PsiFS_Actions(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+  switch(mevent)
+  {
+    case click:
+      PsiFS_Click  (fsn_desc, drivenum, event, mevent);
+      break;
+
+    case follow:
+      PsiFS_Follow (fsn_desc, drivenum, event, mevent);
+      break;
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : PsiFS_DoConnect                                                 *
+ * Purpose   : Attempt to connect PsiFS to a Psion device.                     *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 04/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void PsiFS_DoConnect(char *fsn_desc, int drivenum, void *event, MenuEventType mevent)
+{
+/*  window_handle aWindow; */
+  int swiNum;
+
+
+  return;  // !!!!!!!!!!!
+
+  if (mevent == click && notConnected)
+  {
+    /*aWindow = Window_Create("information", 0);
+    Msgs_Lookup ("info.psion1", Icon_GetTextPtr (aWindow, 3), 63);
+    Window_Show(aWindow, open_CENTERED); */
+    if (OS_SWINumberFromString ("PsiRiscFS_Connect", &swiNum) != NULL) return;
+    _kernel_swi(swiNum | 0x020000, NULL, NULL);
+    /*Window_Delete(aWindow); */
+  }
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : PsiFS_ListDrives                                                *
+ * Purpose   : Add PsiFS drives to the main MiniDisc menu.                     *
+ * Status    : Implementation (V1.0.0)                                         *
+ * V1.0.0    : 04/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void *PsiFS_ListDrives (void *mainMenu)
+{
+  _kernel_swi_regs  regs;
+  char              buffer[buffer_size], b2[1024];
+  int               i,
+                    lastUsedDrive = 0;
+
+
+  regs.r[0] = 0x1000;
+  if (_kernel_swi(0x0520c3, &regs, &regs) != NULL)                           return mainMenu;
+
+  if ((regs.r[1] & 0x01) == 0)  /* No Psion drives found, so offer a 'connect' option. */
+  {
+    DriveMenuSize++;
+    Msgs_Lookup("menu.connect", buffer, buffer_size - 1);
+    mainMenu = ibMenu_Add (mainMenu, buffer, "smd_pda", 0, 1);
+    proceduresInfo[DriveMenuSize].proc_ptr = PsiFS_DoConnect;
+    proceduresInfo[DriveMenuSize].drivenum = 0;
+    strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "PsiFS");
+    notConnected = TRUE;
+  }
+
+  else  /* Psion is connected, so list drives in the menu */
+  {
+    for (i = 0; i < 26; i++)
+    {
+      regs.r[0] = 0x1100 + i;  // PsiFS_Get
+      (void) _kernel_swi(0x0520c3, &regs, &regs);  // read drive status
+
+      if ((regs.r[1] & 0x01) == 1)
+      {
+        DriveMenuSize++;
+        proceduresInfo[DriveMenuSize].proc_ptr = PsiFS_Actions;
+        proceduresInfo[DriveMenuSize].drivenum = i;  /* int value of alpha drive, eg. a=0 */
+        strcpy(proceduresInfo[DriveMenuSize].fsn_desc, "PsiFS");
+        regs.r[0] = 0x1200 + i;
+        regs.r[1] = (int) buffer;
+        regs.r[2] = buffer_size;
+        (void) _kernel_swi(0x0520c3, &regs, &regs);  // read drive name
+        sprintf(b2, "%s::%s", proceduresInfo[DriveMenuSize].fsn_desc, buffer);
+        mainMenu = ibMenu_Add (mainMenu, b2, "smd_pda", 1, 0);
+        lastUsedDrive = DriveMenuSize;
+      }
+    }
+
+    MenuRuleOff(mainMenu, lastUsedDrive);
+    notConnected = FALSE;
+  }
+
+  return mainMenu;
+}
+
+
+/* --------------------------------------------------------------------------- *
+ * Procedure : PsiFS_StartUp                                                   *
+ * Purpose   : Kick PsiFS connection into life                                 *
+ * Status    : Implementation (V1.0.2)                                         *
+ * V1.0.2    : 05/03/2000 - Update - Checks to see if startup required.        *
+ * V1.0.1    : 19/02/2000 - Update - Now supports appPath option.              *
+ * V1.0.0    : 14/09/1999 - Preliminary implementation.                        *
+ * Notes     :                                                                 *
+ * --------------------------------------------------------------------------- */
+void PsiFS_StartUp (void)
+{
+  BOOL  modLoaded = TRUE;
+
+
+  return;  // !!!!!!!!!!
+
+  MDTrace(100, "Initialising...");
+
+  if (MDCfg->psion.inMenu != 0 || MDCfg->psion.driver != 0)  return;  /* Only do if req'd */
+
+  /* Use the system variable if it's already there. */
+  if (OS_ReadVarVal("PsiRisc$Dir", MD_tmp, buffer_size))
+    Wimp_StartTask("<MiniDisc$Dir>.bin.PsiRisc");
+
+  /* Use the path from configuration file. */
+  else if (strlen(MDCfg->psion.appPath) != 0)
+  {
+    sprintf        (MD_tmp, "Set PsiRisc$Dir %s", MDCfg->psion.appPath);
+    OS_CLI         (MD_tmp);
+    Wimp_StartTask ("<MiniDisc$Dir>.bin.PsiRisc");
+  }
+
+  /* Unable to load modules. */
+  else modLoaded = FALSE;
+
+  if (modLoaded && MDCfg->psion.autoConnect == 0)
+  {
+    notConnected = TRUE;
+    PsiFS_DoConnect("PsiRiscFS", 0, NULL, click);
+  }
+}
